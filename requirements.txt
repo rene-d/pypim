@@ -1,5 +1,3 @@
-tqdm
-pandas
 click
-humanfriendly
-bandersnatch
+requests
+packaging
