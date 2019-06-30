@@ -387,7 +387,7 @@ def update_list(client, db, db_json, clear_ignore=False):
         updated = fetch_value(db, "select count(*) from list_packages where last_serial>?", old_max_serial)
         logging.info(f"updated: {updated}")
 
-        with open("updated", "wt") as fp:
+        with open("updated.txt", "wt") as fp:
             for row in db.execute("select name from list_packages where last_serial>?", (old_max_serial,)):
                 name = row[0]
                 print(name, file=fp)
@@ -669,30 +669,34 @@ def get_cached_list(filename, getter):
     return resource
 
 
-def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None):
+def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False):
 
+    # the root of the mirror
     web_root = pathlib.Path(web_root).expanduser()
+
+    if only_whitelist:
+        # download only the listed packages
+        blacklist = set()
+        conditions = defaultdict(list)
+    else:
+        # the blacklist and calculated requirement conditions
+        blacklist, _ = get_cached_list("blacklist", lambda: get_blacklist(db))
+        conditions = get_cached_list("conditions", lambda: compute_requirements(db, blacklist))
 
     # the whitelist
     if (isinstance(whitelist_cond, tuple) or isinstance(whitelist_cond, list)) and len(whitelist_cond) != 0:
-        use_whitelist = True
-        blacklist = set()
-        conditions = defaultdict(list)
-
+        whitelist = defaultdict(set)
         normalized_names = dict((normalize(name), name) for name, in db.execute("select name from list_packages"))
         for cond in whitelist_cond:
             m = re.match(r"^([^=<>~]+)(.*)?$", cond)
             name = normalized_names[normalize(m.group(1))]
-            conditions[name].append(m.group(2))
+            whitelist[name].add(m.group(2))
 
-        for name, cond in conditions.items():
-            logging.info(f"whitelist: {name} {cond}")
-    else:
-        use_whitelist = False
-
-        # the blacklist and calculated requirement conditions
-        blacklist, _ = get_cached_list("blacklist", lambda: get_blacklist(db))
-        conditions = get_cached_list("conditions", lambda: compute_requirements(db, blacklist))
+        for name, conds in whitelist.items():
+            logging.info(f"whitelist: {name} {conds}")
+            conditions[name] = conditions[name].union(conds)
+            if name in blacklist:
+                del blacklist[name]
 
     # initialize plugins borrowed from bandersnatch
     filter_releases = latest_name.LatestReleaseFilter()
@@ -709,12 +713,12 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None)
     index = 0
 
     # ajoute la liste des "done" à la blacklist
-    z = pathlib.Path("done")
+    z = pathlib.Path("done.txt")
     if z.exists():
         for i in z.open():
             blacklist.add(i.strip())
 
-    downloaded = open("downloaded", "a")
+    downloaded = open("downloaded.txt", "a")
 
     session = requests.Session()
 
@@ -724,12 +728,13 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None)
             for name, data in db_json.execute("select name, metadata from package"):
 
                 # if a whitelist is provided, ignore blacklist and other packages
-                if use_whitelist:
+                if only_whitelist:
                     if name not in conditions:
                         continue
-                    logging.info(f"process {name}")
                 elif name in blacklist:
                     continue
+
+                logging.debug(f"process {name}")
 
                 data = json.loads(data)
                 info = data['info']
@@ -772,7 +777,7 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None)
                                 with file.open("wb") as fp:
                                     fp.write(session.get(f['url']).content)
 
-                with open("done", "a") as fp:
+                with open("done.txt", "a") as fp:
                     print(name, file=fp)
 
         except Exception as e:
@@ -787,7 +792,7 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None)
     print(f"index={index} exist={exist} download={download} download_size={download_size}")
 
 
-def run(update=False, metadata=False, packages=False, dry_run=False, add=None, **kwargs):
+def run(update=False, metadata=False, packages=False,  **kwargs):
 
     db = sqlite3.connect("pypi.db")
     db_json = sqlite3.connect("pypi_json.db")
@@ -795,10 +800,15 @@ def run(update=False, metadata=False, packages=False, dry_run=False, add=None, *
 
     create_db(db, db_json)
 
-    if not update and not metadata and not packages:
-        logging.warning("nothing to do, did you mess up -u, -m or -p ?")
+    white_list = kwargs["add"]
+    for fn in kwargs["add_list"]:
+        white_list = list(white_list)
+        with open(fn) as fp:
+            for r in fp:
+                white_list.append(r.strip())
 
-        fetch_value(db, "select count(*) from package where last_serial < ?", 1000)
+    if not update and not metadata and not packages and len(white_list) == 0:
+        logging.warning("nothing to do, did you mess up -u, -m, -p or -a/-A ?")
     else:
         if update:
             update_list(client, db, db_json)
@@ -806,8 +816,11 @@ def run(update=False, metadata=False, packages=False, dry_run=False, add=None, *
         if metadata:
             download_metadata(db, db_json)
 
-        if packages:
-            download_packages(db, db_json, "~/data/web", dry_run, add)
+        if packages or len(white_list) != 0:
+            web_root = kwargs["web"]
+            dry_run = kwargs["dry_run"]
+            only_wl = not packages
+            download_packages(db, db_json, web_root, dry_run, white_list, only_wl)
 
     db_json.close()
     db.close()
@@ -820,7 +833,10 @@ def run(update=False, metadata=False, packages=False, dry_run=False, add=None, *
 @click.option("-u", "--update", is_flag=True, default=False, help="update list of packages")
 @click.option("-m", "--metadata", is_flag=True, default=False, help="download JSON metadata")
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
-@click.option("-a", "--add", multiple=True, help="package name")
+@click.option("-a", "--add", multiple=True, help="package name (trigger mirroring)")
+@click.option("-A", "--add-list", multiple=True, help="package list (trigger mirroring)",
+              type=click.Path(exists=True))
+@click.option("--web", default="~/data/pypi", help="mirror directory")
 def main(**kwargs):
 
     # verbose/logger

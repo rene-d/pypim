@@ -1,4 +1,10 @@
 *.db
 *.cache
 .DS_Store
+*.pyc
 __pycache__/
+
+conditions.txt
+done.txt
+downloaded.txt
+updated.txt
