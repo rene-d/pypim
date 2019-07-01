@@ -24,3 +24,7 @@ When a release becomes too old, it won't be listed in index.html. And not delete
 ## Look for orphan files
 
 If a previously downloaded file is removed from a release, it will remain in the mirror.
+
+## Write tests 🤪
+
+## Finish the documentation... 😇
