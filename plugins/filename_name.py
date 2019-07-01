@@ -4,11 +4,29 @@ from typing import List
 logger = logging.getLogger("PyPIM")
 
 
-DEPRECATED_PYTHON = set(['3.0', '3.1', '3.2', '3.3', '3.4',
-                         '2.3', '2.4', '2.5', '2.6',
-                         'cp25', 'cp26',
-                         'cp31', 'cp32', 'cp33', 'cp34',
-                         'py31', 'py32', 'py33', 'py34'])
+DEPRECATED_PYTHON = set(
+    [
+        "3.0",
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4",
+        "2.3",
+        "2.4",
+        "2.5",
+        "2.6",
+        "cp25",
+        "cp26",
+        "cp31",
+        "cp32",
+        "cp33",
+        "cp34",
+        "py31",
+        "py32",
+        "py33",
+        "py34",
+    ]
+)
 
 
 class ExcludePlatformFilter:

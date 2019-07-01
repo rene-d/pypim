@@ -20,7 +20,7 @@ def parse_conditions(conditions):
             test = test.replace("'", "")
             test = test.replace('"', "")
             if test.startswith("=="):
-                if test.find('*') == -1:
+                if test.find("*") == -1:
                     try:
                         parse(test[2:])
                         mandatories.add(test[2:])

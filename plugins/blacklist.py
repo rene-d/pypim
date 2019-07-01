@@ -7,8 +7,10 @@ logger = logging.getLogger("PyPIM")
 
 # packages too big or updated too frequently
 TOOFAT = [
-    "cupy", "cupy-%",  # CuPy : NumPy-like API accelerated with CUDA
-    "mxnet", "mxnet-%",  # Apache MXNet is a deep learning framework
+    "cupy",
+    "cupy-%",  # CuPy : NumPy-like API accelerated with CUDA
+    "mxnet",
+    "mxnet-%",  # Apache MXNet is a deep learning framework
     "tf-nightly%",  # nightly TensorFlow
 ]
 
@@ -56,8 +58,7 @@ SCAM = [
     "mastercard%",
     # bullshit (among tons not listed...)
     "0",
-    "0-._.-._.-._.-._.-._.-._.-0"
-    "0.0.1",
+    "0-._.-._.-._.-._.-._.-._.-0" "0.0.1",
     "0-core-client",
     "aliyun%",
     "nester%",
@@ -93,7 +94,7 @@ def get_blacklist(db):
         logger.info(f"{title:>20}: {len(excluded):6}   blacklist:{len(blacklist):6}")
 
     # remove ignored packaged (packages without release)
-    filter("ignored", 'select name from list_packages where ignore')
+    filter("ignored", "select name from list_packages where ignore")
 
     # remove packaged listed in TOOFAT
     sql = "select name from list_packages where 0=1"
@@ -111,21 +112,29 @@ def get_blacklist(db):
     filter("scam", sql)
 
     # remove Plone (CMS), Django (web), Odoo (ERP) : too many packages
-    filter("Framework :: Plone",
-           "select distinct name from classifier where classifier like 'Framework :: Plone%'",
-           "select name from list_packages where name like 'Products.%' or name like 'collective.%'")
+    filter(
+        "Framework :: Plone",
+        "select distinct name from classifier where classifier like 'Framework :: Plone%'",
+        "select name from list_packages where name like 'Products.%' or name like 'collective.%'",
+    )
 
-    filter("Framework :: Django",
-           "select distinct name from classifier where classifier like 'Framework :: Django'",
-           "select name from list_packages where name like 'django%'")
+    filter(
+        "Framework :: Django",
+        "select distinct name from classifier where classifier like 'Framework :: Django'",
+        "select name from list_packages where name like 'django%'",
+    )
 
-    filter("Framework :: Odoo",
-           "select distinct name from classifier where classifier like 'Framework :: Odoo'",
-           "select name from list_packages where name like 'odoo%'")
+    filter(
+        "Framework :: Odoo",
+        "select distinct name from classifier where classifier like 'Framework :: Odoo'",
+        "select name from list_packages where name like 'odoo%'",
+    )
 
     # remove packages without file
-    filter("without file",
-           "select name from package where name not in (select distinct name from file)")
+    filter(
+        "without file",
+        "select name from package where name not in (select distinct name from file)",
+    )
 
     # filter("description UNKNOWN", 'select name from package where description="UNKNOWN"')
     # filter("missing description", 'select name from package where description=""')
