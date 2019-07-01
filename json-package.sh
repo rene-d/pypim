@@ -2,7 +2,7 @@
 
 filter=.
 verbose=
-while getopts ":vf:" option; do
+while getopts ":vf:r" option; do
     case "${option}" in
         f)
 	        filter=${OPTARG}
@@ -10,14 +10,18 @@ while getopts ":vf:" option; do
 	    v)
 	        verbose=-v
             ;;
+	    r)
+	        unset filter
+            ;;
         *)
             usage
+            exit
             ;;
     esac
 done
 shift $((OPTIND-1))
 
 
-curl ${verbose} -s -H 'Content-Type: application/json' https://pypi.org/pypi/$1/json | (
+curl -L ${verbose} -s -H 'Content-Type: application/json' https://pypi.org/pypi/$1/json | (
     [[ ${filter} ]] && jq ${filter} || cat
 )

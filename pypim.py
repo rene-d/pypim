@@ -154,7 +154,7 @@ def fetch_value(db, sql, params=(), default_value=0):
         params = (params,)
     row = db.execute(sql, params).fetchone()
     # logging.debug(f"{row!r}")
-    if row:
+    if row and isinstance(row[0], int):
         return int(row[0])
     else:
         return default_value
@@ -171,6 +171,7 @@ def create_db(db, db_json):
 -- package JSON metadata
 create table if not exists package (
     name            text not null primary key,
+    last_serial     integer not null,
     metadata        blob
 );
 """)
@@ -300,8 +301,9 @@ def add_package(db, orig_name, data):
     del info["project_urls"]  # unused
     del info["requires_dist"]
 
-    # ajoute le last_serial (plutôt que dans une tâble séparée)
-    info['last_serial'] = data["last_serial"]
+    # ajoute le last_serial (plutôt que dans une table séparée)
+    last_serial = data["last_serial"]
+    info['last_serial'] = last_serial
 
     # add the package
     insert_row(cur, "package", info)
@@ -337,7 +339,9 @@ def add_package(db, orig_name, data):
 
     cur.close()
 
-    logging.debug(f"package added: {name}")
+    logging.debug(f"package added: {name} {last_serial}")
+
+    return last_serial
 
 
 def update_list(client, db, db_json, clear_ignore=False):
@@ -466,10 +470,11 @@ order by lp.last_serial
 
                 # parse and store the metadata
                 delete_package(db, name)
-                add_package(db, name, json.loads(data))
+                last_serial = add_package(db, name, json.loads(data))
 
                 # store the raw JSON
-                db_json.execute("replace into package (name, metadata) values (?, ?)", (name, data))
+                db_json.execute("replace into package (name,last_serial,metadata) values (?,?,?)",
+                                (name, last_serial, data))
 
                 db_json.commit()
                 db.commit()
@@ -694,7 +699,7 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None,
 
         for name, conds in whitelist.items():
             logging.info(f"whitelist: {name} {conds}")
-            conditions[name] = conditions[name].union(conds)
+            conditions[name] = set(conditions[name]).union(conds)
             if name in blacklist:
                 del blacklist[name]
 
@@ -785,7 +790,7 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None,
             raise e
 
         except KeyboardInterrupt:
-            logging.warning("arrêt")
+            logging.warning("interrupt")
 
     downloaded.close()
 
