@@ -116,7 +116,7 @@ class CtrlC:
         def _handler(sig, frame):
             nonlocal self
             self.ctrl_c = True
-            print('\nCtrlC: exit requested... another ^C to force')
+            print("\nCtrlC: exit requested... another ^C to force")
             signal.signal(signal.SIGINT, signal.SIG_DFL)
             if self.throw:
                 raise KeyboardInterrupt
@@ -165,17 +165,20 @@ def create_db(db, db_json):
         db_json     the raw metadata in JSON format
     """
 
-    db_json.executescript("""\
+    db_json.executescript(
+        """\
 -- package JSON metadata
 create table if not exists package (
     name            text not null primary key,
     last_serial     integer not null,
     metadata        blob
 );
-""")
+"""
+    )
     logger.debug("metadata database initialized")
 
-    db.executescript("""\
+    db.executescript(
+        """\
 -- response of changelog_last_serial()
 create table if not exists pypi_last_serial (
     last_serial     integer not null,
@@ -242,6 +245,7 @@ create table if not exists file (
     release         text not null,
     comment_text    text,
     -- digests md5 sha256
+    digests_sha256  text,
     -- downloads
     filename        text,
     has_sig         text,
@@ -285,7 +289,8 @@ create trigger if not exists file_trigger
         delete from file where old.name=name;
     end;
 
-""")
+"""
+    )
     logger.debug("packages database initialized")
 
 
@@ -323,7 +328,7 @@ def add_package(db, orig_name, data):
 
     # ajoute le last_serial (plutôt que dans une table séparée)
     last_serial = data["last_serial"]
-    info['last_serial'] = last_serial
+    info["last_serial"] = last_serial
 
     # add the package
     insert_row(cur, "package", info)
@@ -350,6 +355,9 @@ def add_package(db, orig_name, data):
         for file in files:
             file["name"] = name
             file["release"] = release
+
+            # we need only the SHA256 digest
+            file["digests_sha256"] = file["digests"]["sha256"]
 
             del file["digests"]
             del file["downloads"]
@@ -384,8 +392,10 @@ def update_list(client, db, clear_ignore=False):
 
         logger.info(f"update events: {last_serial - db_serial}")
         db.execute("delete from pypi_last_serial")
-        db.execute("insert into pypi_last_serial (last_serial, timestamp) values (?,?)",
-                   (last_serial, last_serial_time))
+        db.execute(
+            "insert into pypi_last_serial (last_serial, timestamp) values (?,?)",
+            (last_serial, last_serial_time),
+        )
 
         # ----- list_packages_with_serial -----
         packages = client.list_packages_with_serial()
@@ -400,14 +410,17 @@ def update_list(client, db, clear_ignore=False):
         # replace the list of packages with the fresh one, ignore flag preserved
         logger.info("refill table list_packages")
         db.execute("delete from list_packages")
-        db.executemany("insert into list_packages (name,last_serial,ignore) values (?,?,?)",
-                       [(name, last_serial, ignore_flags[name])
-                        for name, last_serial in packages.items()])
+        db.executemany(
+            "insert into list_packages (name,last_serial,ignore) values (?,?,?)",
+            [(name, last_serial, ignore_flags[name]) for name, last_serial in packages.items()],
+        )
 
         # unignore packages modified since our last update
         db.execute("update list_packages set ignore=false where last_serial>?", (db_serial,))
 
-        updated = fetch_value(db, "select count(*) from list_packages where last_serial>?", db_serial)
+        updated = fetch_value(
+            db, "select count(*) from list_packages where last_serial>?", db_serial
+        )
         logger.info(f"updated: {updated}")
 
         for row in db.execute("select name from list_packages where last_serial>?", (db_serial,)):
@@ -441,7 +454,7 @@ def download_metadata(db):
     sql = """\
 select name from package where name not in (select name from list_packages)
 """
-    for name, in db.execute(sql).fetchall():
+    for (name,) in db.execute(sql).fetchall():
         logger.debug(f"package removed from pypi: {name}")
         delete_package(db, name)
     db.commit()
@@ -488,15 +501,21 @@ order by lp.last_serial
                 last_serial = add_package(db, name, json.loads(data))
 
                 # store the raw JSON
-                db.execute("replace into md.package (name,last_serial,metadata) values (?,?,?)",
-                           (name, last_serial, data))
+                db.execute(
+                    "insert into MD.package (name,last_serial,metadata) values (?,?,?)",
+                    (name, last_serial, data),
+                )
 
                 db.commit()
 
-            except (sqlite3.IntegrityError, sqlite3.InterfaceError,
-                    json.decoder.JSONDecodeError, Exception) as e:
+            except (
+                sqlite3.IntegrityError,
+                sqlite3.InterfaceError,
+                json.decoder.JSONDecodeError,
+                Exception,
+            ) as e:
                 logger.error(f"error {name} {e!r}")
-                db.execute("update list_packages set ignore=true where name=?", (name, ))
+                db.execute("update list_packages set ignore=true where name=?", (name,))
                 db.commit()
 
             processed += 1
@@ -528,19 +547,24 @@ def build_index(name, last_serial, releases):
 
     for _, r in versions:
         for f in releases[r]:
-            url = f['url']
-            url = url[len("https://files.pythonhosted.org/"):]
+            url = f["url"]
+            url = url[len("https://files.pythonhosted.org/") :]
 
-            if f['requires_python']:
-                req = escape(f['requires_python'])
-                index_html.append(f"""\
+            if f["requires_python"]:
+                req = escape(f["requires_python"])
+                index_html.append(
+                    f"""\
 <a href="../../{url}#sha256={f['digests']['sha256']}" data-requires-python="{req}">{f['filename']}</a><br/>
-""")
+"""
+                )
             else:
-                index_html.append(f"""\
+                index_html.append(
+                    f"""\
 <a href="../../{url}#sha256={f['digests']['sha256']}">{f['filename']}</a><br/>
-""")
-    index_html = f"""\
+"""
+                )
+    index_html = (
+        f"""\
 <!DOCTYPE html>
 <html>
   <head>
@@ -548,11 +572,14 @@ def build_index(name, last_serial, releases):
   </head>
   <body>
     <h1>Links for {name}</h1>
-""" + "".join(index_html) + f"""\
+"""
+        + "".join(index_html)
+        + f"""\
   </body>
 </html>
 <!--SERIAL {last_serial}-->\
 """
+    )
     return index_html
 
 
@@ -575,7 +602,7 @@ def compute_requirements(db, blacklist=set()):
     for iteration in range(1, 10):
         added = 0
         name_cond_pattern = re.compile(r"^(.+?)(?:\s\((.+)\))?$")
-        for name, dist, in db.execute("select name, requires_dist from requires_dist"):
+        for name, dist in db.execute("select name, requires_dist from requires_dist"):
 
             # ne pas considérer des dépendances de paquets qu'on ne veut pas
             if name in blacklist:
@@ -595,7 +622,7 @@ def compute_requirements(db, blacklist=set()):
             cond = m.group(2)
 
             # on ignore les requirements d'extra feature
-            if dist.find('[') != -1:
+            if dist.find("[") != -1:
                 continue
 
             if dist in blacklist:
@@ -646,9 +673,13 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
         conditions = get_cached_list("conditions", lambda: compute_requirements(db, blacklist))
 
     # the whitelist
-    if (isinstance(whitelist_cond, tuple) or isinstance(whitelist_cond, list)) and len(whitelist_cond) != 0:
+    if (isinstance(whitelist_cond, tuple) or isinstance(whitelist_cond, list)) and len(
+        whitelist_cond
+    ) != 0:
         whitelist = defaultdict(set)
-        normalized_names = dict((normalize(name), name) for name, in db.execute("select name from list_packages"))
+        normalized_names = dict(
+            (normalize(name), name) for name, in db.execute("select name from list_packages")
+        )
         for cond in whitelist_cond:
             m = re.match(r"^([^=<>~]+)(.*)?$", cond)
             name = normalize(m.group(1))
@@ -687,14 +718,18 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
     with CtrlC(True):
         try:
 
-            count = fetch_value(db, "select count(*) from MD.package")
+            count = fetch_value(db, "select count(*) from package")
             progress = 0
 
-            for name, data in db.execute("select name, metadata from MD.package"):
+            for name, last_serial, version in db.execute(
+                "select name,last_serial,version from package"
+            ):
 
                 progress += 1
-                if progress % 1000 == 0:
-                    logger.info(f"packages processed: {progress}/{count} only_whitelist={only_whitelist}")
+                if progress % 5000 == 0:
+                    logger.info(
+                        f"packages processed: {progress}/{count} {progress / count * 100:.1f}%"
+                    )
 
                 # if a whitelist is provided, ignore blacklist and other packages
                 if only_whitelist:
@@ -705,10 +740,25 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
 
                 logger.debug(f"process {name}")
 
-                data = json.loads(data)
-                info = data['info']
-                last_serial = data['last_serial']
-                releases = data['releases']
+                # rebuild the JSON metadata (only needed fields)
+                # this is equivalent to:
+                #   data = json.loads(metadata)
+                #   info = data['info']
+                #   last_serial = data['last_serial']
+                #   releases = data['releases']
+                info = {"name": name, "version": version}
+                releases = defaultdict(list)
+                sql = "select release,filename,url,size,requires_python,digests_sha256 from file where name=?"
+                for row in db.execute(sql, (name,)):
+                    releases[row[0]].append(
+                        {
+                            "filename": row[1],
+                            "url": row[2],
+                            "size": row[3],
+                            "requires_python": row[4],
+                            "digests": {"sha256": row[5]},
+                        }
+                    )
 
                 filter_releases.filter(info, releases, conditions.get(name, None))
                 filter_platform.filter(info, releases)
@@ -724,11 +774,11 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
 
                 for r in releases.values():
                     for f in r:
-                        url = f['url']
-                        url = url[len("https://files.pythonhosted.org/"):]
+                        url = f["url"]
+                        url = url[len("https://files.pythonhosted.org/") :]
 
                         file = web_root / url
-                        if file.exists() and file.stat().st_size == int(f['size']):
+                        if file.exists() and file.stat().st_size == int(f["size"]):
                             exist += 1
                         else:
                             download += 1
@@ -742,7 +792,7 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                                     file.parent.unlink()
                                 file.parent.mkdir(exist_ok=True, parents=True)
                                 with file.open("wb") as fp:
-                                    fp.write(session.get(f['url']).content)
+                                    fp.write(session.get(f["url"]).content)
 
                 with open("done", "a") as fp:
                     print(name, file=fp)
@@ -757,11 +807,11 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
     logger.info(f"index={index} exist={exist} download={download} download_size={download_size}")
 
 
-def run(update=False, metadata=False, packages=False,  **kwargs):
+def run(update=False, metadata=False, packages=False, **kwargs):
 
     db = sqlite3.connect("pypi.db")
     db_json = sqlite3.connect("pypi_json.db")
-    client = xmlrpc.client.ServerProxy('https://pypi.org/pypi')
+    client = xmlrpc.client.ServerProxy("https://pypi.org/pypi")
 
     create_db(db, db_json)
 
@@ -802,16 +852,25 @@ def run(update=False, metadata=False, packages=False,  **kwargs):
 @click.option("-m", "--metadata", is_flag=True, default=False, help="download JSON metadata")
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
 @click.option("-a", "--add", multiple=True, help="package name (trigger mirroring)")
-@click.option("-A", "--add-list", multiple=True, help="package list (trigger mirroring)",
-              type=click.Path(exists=True))
+@click.option(
+    "-A",
+    "--add-list",
+    multiple=True,
+    help="package list (trigger mirroring)",
+    type=click.Path(exists=True),
+)
 @click.option("--web", default="~/data/pypi", help="mirror directory")
 def main(**kwargs):
 
+    start_time = time.time()
     init_logger(kwargs)
 
     run(**kwargs)
 
-    logger.info("PyPIM completed")
+    elapsed_time = time.time() - start_time
+    pretty = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
+
+    logger.info(f"PyPIM completed in {pretty}")
 
 
 if __name__ == "__main__":
