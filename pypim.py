@@ -21,75 +21,73 @@ import pathlib
 import re
 import pickle
 from plugins import filename_name, latest_name
+from plugins.blacklist import get_blacklist
 
 
-# packages too big or updated too frequently
-TOOFAT = [
-    "cupy", "cupy-%",  # CuPy : NumPy-like API accelerated with CUDA
-    "mxnet", "mxnet-%",  # Apache MXNet is a deep learning framework
-    "tf-nightly%",  # nightly TensorFlow
-]
+# create logger for our app
+logger = logging.getLogger("PyPIM")
 
-# threats detected by Kaspersky
-THREATS = [
-    "Cuckoo",
-    "secret_miner",
-    "androwarn",
-    "thug",
-    "gpgmailencrypt",
-    "crackmapexec",
-    "escposprinter",
-    "kayobe",
-    "kalabash-amavis",
-    "modoboa_amavis",
-    "avocado-framework-plugin-vt",
-    "grr-response-test",
-    "modoboa-amavis",
-    "edeposit.amqp.antivir",
-    "jabbercracky",
-    "ecxclient",
-    "test-typo-pypi",
-    "rigpy",
-    "vxstreamlib",
-    "Pythonic",
-    "formasaurus",
-    "pytagora",
-    "pytagora2",
-    "plainbox",
-    "duxlot",
-    "babysploit",
-    "manim",
-    "csirtg_mail",
-    "lda",
-    "scrapyc",
-]
 
-SCAM = [
-    # useless when offline
-    "aws%",
-    "azure%",
-    "cmsplugin%",
-    "github%",
-    "google-cloud%",
-    "mastercard%",
-    # bullshit (among tons not listed...)
-    "0",
-    "0-._.-._.-._.-._.-._.-._.-0"
-    "0.0.1",
-    "0-core-client",
-    "aliyun%",
-    "nester%",
-    "raptus%",
-    "Bravo",
-    # requirements badly written
-    "pcu",
-    "bareasgi-cors",
-    "bareasgi-graphql-next",
-    "candid",
-    "wechat-mchpay",
-    "eGo",
-    "Flask-Z3950",
-]
+class ColoredFormatter(logging.Formatter):
+
+    COLORS = {
+        logging.DEBUG: "\033[0;32m",
+        logging.INFO: "\033[1;36m",
+        logging.WARNING: "\033[1;33m",
+        logging.ERROR: "\033[0;31m",
+        logging.FATAL: "\033[1;41m",
+    }
+
+    def __init__(self, msg, **kwargs):
+        logging.Formatter.__init__(self, msg, **kwargs)
+        self.use_color = sys.stderr.isatty()
+
+    def format(self, record):
+        saved_levelname = record.levelname
+        levelno = record.levelno
+        if self.use_color and levelno in ColoredFormatter.COLORS:
+            record.levelname = ColoredFormatter.COLORS[levelno] + record.levelname + "\033[0m"
+        line = logging.Formatter.format(self, record)
+        record.levelname = saved_levelname
+        return line
+
+
+def init_logger(kwargs):
+    """
+    initialize the logger with a colored console and a file handlers
+    """
+
+    filename = kwargs["logfile"]
+
+    if kwargs["verbose"]:
+        level = logging.DEBUG
+    elif kwargs["non_verbose"]:
+        level = logging.WARNING
+    else:
+        level = logging.INFO
+
+    logger.setLevel(logging.DEBUG)
+
+    # create console handler and set level
+    ch = logging.StreamHandler()
+    ch.setLevel(level)
+    formatter = ColoredFormatter("%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S")
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    if filename:
+        # create file handler and set level to debug
+        ch = logging.FileHandler(filename)
+        ch.setLevel(logging.DEBUG)
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+    else:
+        # if no file handler, we can reduce the level as asked
+        logger.setLevel(level)
+
+    logger.info("PyPIM started")
+    logger.debug(f"args {kwargs!r}")
 
 
 class CtrlC:
@@ -112,7 +110,7 @@ class CtrlC:
         self.throw = throw
 
     def __enter__(self):
-        logging.debug("enter CtrlC")
+        logger.debug("enter CtrlC")
         self.ctrl_c = False
 
         def _handler(sig, frame):
@@ -127,7 +125,7 @@ class CtrlC:
         return self
 
     def __exit__(self, type, value, traceback):
-        logging.debug("exit CtrlC")
+        logger.debug("exit CtrlC")
         signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     def __bool__(self):
@@ -148,12 +146,12 @@ def fetch_value(db, sql, params=(), default_value=0):
     """
     fetch the first value of the first row of a select statement
     """
-    # logging.debug(f"{sql}")
-    # logging.debug(f"{params!r}")
+    # logger.debug(f"{sql}")
+    # logger.debug(f"{params!r}")
     if not isinstance(params, tuple) and not isinstance(params, list):
         params = (params,)
     row = db.execute(sql, params).fetchone()
-    # logging.debug(f"{row!r}")
+    # logger.debug(f"{row!r}")
     if row and isinstance(row[0], int):
         return int(row[0])
     else:
@@ -175,7 +173,7 @@ create table if not exists package (
     metadata        blob
 );
 """)
-    logging.debug("metadata database initialized")
+    logger.debug("metadata database initialized")
 
     db.executescript("""\
 -- response of changelog_last_serial()
@@ -183,7 +181,6 @@ create table if not exists pypi_last_serial (
     last_serial     integer not null,
     timestamp       integer
 );
-
 
 -- response of list_packages_with_serial
 create table if not exists list_packages (
@@ -262,8 +259,34 @@ create unique index if not exists package_uk on package (name,last_serial);
 create unique index if not exists release_pk on release (name,release);
 create index if not exists release_fk on release (name);
 create index if not exists file_fk on file (name,release);
+
+-- triggers
+create trigger if not exists classifier_trigger
+    after delete on package for each row
+    begin
+        delete from classifier where old.name=name;
+    end;
+
+create trigger if not exists requires_dist_trigger
+    after delete on package for each row
+    begin
+        delete from requires_dist where old.name=name;
+    end;
+
+create trigger if not exists release_trigger
+    after delete on package for each row
+    begin
+        delete from release where old.name=name;
+    end;
+
+create trigger if not exists file_trigger
+    after delete on package for each row
+    begin
+        delete from file where old.name=name;
+    end;
+
 """)
-    logging.debug("packages database initialized")
+    logger.debug("packages database initialized")
 
 
 def delete_package(db, name):
@@ -271,11 +294,8 @@ def delete_package(db, name):
     delete a package from all the tables
     """
     cur = db.cursor()
-    cur.execute("delete from file where name=?", (name,))
-    cur.execute("delete from release where name=?", (name,))
-    cur.execute("delete from requires_dist where name=?", (name,))
-    cur.execute("delete from classifier where name=?", (name,))
     cur.execute("delete from package where name=?", (name,))
+    cur.execute("delete from MD.package where name=?", (name,))
     cur.close()
 
 
@@ -290,7 +310,7 @@ def add_package(db, orig_name, data):
     name = info["name"]
 
     if name != orig_name:
-        logging.eror(f"{name} != {orig_name}")
+        logger.eror(f"{name} != {orig_name}")
         assert name == orig_name
 
     classifiers = info["classifiers"]
@@ -339,38 +359,37 @@ def add_package(db, orig_name, data):
 
     cur.close()
 
-    logging.debug(f"package added: {name} {last_serial}")
+    logger.debug(f"package added: {name} {last_serial}")
 
     return last_serial
 
 
-def update_list(client, db, db_json, clear_ignore=False):
+def update_list(client, db, clear_ignore=False):
     """
     download and update the list of packages with their last_serial
     """
 
     db_serial = fetch_value(db, "select last_serial from pypi_last_serial")
-    logging.info(f"db serial: {db_serial}")
+    logger.info(f"db serial: {db_serial}")
 
     # ----- changelog_last_serial -----
-    last_serial = client.changelog_last_serial()
     last_serial_time = int(time.time())
-    logging.info(f"server serial: {last_serial}")
+    last_serial = client.changelog_last_serial()
+    logger.info(f"server serial: {last_serial}")
 
     if last_serial == db_serial:
-        logging.info("database is up to date")
+        logger.info("database is up to date")
     else:
-        logging.info(f"update events: {last_serial - db_serial}")
+        # the server serial is different from ours: we have to update
+
+        logger.info(f"update events: {last_serial - db_serial}")
         db.execute("delete from pypi_last_serial")
         db.execute("insert into pypi_last_serial (last_serial, timestamp) values (?,?)",
                    (last_serial, last_serial_time))
 
         # ----- list_packages_with_serial -----
         packages = client.list_packages_with_serial()
-        logging.info("packages listed: %d", len(packages))
-        # serials = packages.values()
-        # logging.info("min serial: %d", min(serials))
-        # logging.info("max serial: %d", max(serials))
+        logger.info("packages listed: %d", len(packages))
 
         ignore_flags = defaultdict(lambda: False)
         if not clear_ignore:
@@ -379,56 +398,53 @@ def update_list(client, db, db_json, clear_ignore=False):
                 ignore_flags[row[0]] = row[1]
 
         # replace the list of packages with the fresh one, ignore flag preserved
-        logging.info("refill table list_packages")
-        old_max_serial = fetch_value(db, "select max(last_serial) from list_packages")
+        logger.info("refill table list_packages")
         db.execute("delete from list_packages")
         db.executemany("insert into list_packages (name,last_serial,ignore) values (?,?,?)",
                        [(name, last_serial, ignore_flags[name])
                         for name, last_serial in packages.items()])
 
-        db.execute("update list_packages set ignore=false where last_serial>?", (old_max_serial,))
+        # unignore packages modified since our last update
+        db.execute("update list_packages set ignore=false where last_serial>?", (db_serial,))
 
-        updated = fetch_value(db, "select count(*) from list_packages where last_serial>?", old_max_serial)
-        logging.info(f"updated: {updated}")
+        updated = fetch_value(db, "select count(*) from list_packages where last_serial>?", db_serial)
+        logger.info(f"updated: {updated}")
 
-        with open("updated.txt", "wt") as fp:
-            for row in db.execute("select name from list_packages where last_serial>?", (old_max_serial,)):
-                name = row[0]
-                print(name, file=fp)
-                logging.debug(f"updated: {name}")
+        for row in db.execute("select name from list_packages where last_serial>?", (db_serial,)):
+            name = row[0]
+            logger.debug(f"updated: {name}")
 
     # print some stats
     total = fetch_value(db, "select count(*) from list_packages")
-    logging.info(f"packages: {total}")
+    logger.info(f"packages: {total}")
 
     ignored = fetch_value(db, "select count(*) from list_packages where ignore")
-    logging.info(f"ignored: {ignored}")
-
-    zz = fetch_value(db, "select max(last_serial) from package")
-    xx = fetch_value(db, "select count(*) from list_packages where last_serial>?", (zz,))
-    logging.info(f"download: {xx}")
+    logger.info(f"ignored: {ignored}")
 
     db.commit()
 
 
-def download_metadata(db, db_json):
+def download_metadata(db):
     """
     download and parse JSON metadata
 
     only needed (missing and updated) packages will be downloaded
 
-    the raw JSON metadata is stored into db_json
+    the raw JSON metadata is stored into a separated database, attached to db
     the metadata is parsed and stored into tables of db
     """
 
     # requests session to download the JSON metadata
     session = requests.Session()
 
+    # remove packages that are no longer listed
     sql = """\
 select name from package where name not in (select name from list_packages)
 """
     for name, in db.execute(sql).fetchall():
+        logger.debug(f"package removed from pypi: {name}")
         delete_package(db, name)
+    db.commit()
 
     with CtrlC() as ctrl_c:
 
@@ -440,12 +456,11 @@ select lp.name,lp.last_serial,p.last_serial
 from list_packages as lp
 left join package as p on lp.name=p.name
 where lp.ignore=false
-  and (p.last_serial<lp.last_serial
-       or p.name is null)
+  and (p.last_serial<lp.last_serial or p.name is null)
 order by lp.last_serial
 """
         rows = db.execute(sql).fetchall()
-        logging.info(f"metadata to download: {len(rows)}")
+        logger.info(f"metadata to download: {len(rows)}")
 
         processed = 0
 
@@ -455,7 +470,7 @@ order by lp.last_serial
                 break
 
             name = row[0]
-            logging.info(f"bump package {name} from serial {row[2]} to {row[1]}")
+            logger.info(f"bump package {name} from serial {row[2]} to {row[1]}")
 
             try:
                 url = f"https://pypi.org/pypi/{name}/json"
@@ -463,7 +478,7 @@ order by lp.last_serial
                 if req.status_code == 404:
                     # weird... package is listed in list_packages
                     # but not accessible from pypi.org
-                    # probably when package has no release
+                    # it occurs probably when the package has no release
                     raise FileNotFoundError
 
                 data = req.content
@@ -473,25 +488,33 @@ order by lp.last_serial
                 last_serial = add_package(db, name, json.loads(data))
 
                 # store the raw JSON
-                db_json.execute("replace into package (name,last_serial,metadata) values (?,?,?)",
-                                (name, last_serial, data))
+                db.execute("replace into md.package (name,last_serial,metadata) values (?,?,?)",
+                           (name, last_serial, data))
 
-                db_json.commit()
                 db.commit()
 
             except (sqlite3.IntegrityError, sqlite3.InterfaceError,
                     json.decoder.JSONDecodeError, Exception) as e:
-                logging.error(f"error {name} {e!r}")
+                logger.error(f"error {name} {e!r}")
                 db.execute("update list_packages set ignore=true where name=?", (name, ))
                 db.commit()
 
             processed += 1
 
-    logging.info(f"packages processed: {processed}")
+    logger.info(f"packages processed: {processed}")
     if len(rows) != processed:
-        logging.warning(f"packages remainging: {len(rows) - processed}")
+        logger.warning(f"packages remainging: {len(rows) - processed}")
 
     session.close()
+
+    # sanitize metadata database...
+    db.execute("delete from MD.package where name not in (select name from package)")
+    db.commit()
+
+    # remove the file where we save the download progress
+    z = pathlib.Path("done")
+    if z.exists():
+        z.unlink()
 
 
 def build_index(name, last_serial, releases):
@@ -577,7 +600,7 @@ def compute_requirements(db, blacklist=set()):
 
             if dist in blacklist:
                 # la dépendance de name est blacklistée, on blackliste name aussi
-                logging.debug(f"{name} blacklisted because of {dist}")
+                logger.debug(f"{name} blacklisted because of {dist}")
                 blacklist.add(name)
                 added += 1
                 if name in conditions:
@@ -587,81 +610,15 @@ def compute_requirements(db, blacklist=set()):
                     conditions[dist].add(cond)
 
         if added:
-            logging.info(f"iteration {iteration}: packages added to the blacklist: {added}")
+            logger.info(f"iteration {iteration}: packages added to the blacklist: {added}")
         else:
             break
 
-    f = pathlib.Path("conditions.txt")
-    f.open("w").write("".join(sorted(f"{i:30} {j}\n" for i, j in conditions.items())))
-    logging.info(f"packages with requirement conditions: {len(conditions)}")
+    # f = pathlib.Path("conditions.log")
+    # f.open("w").write("".join(sorted(f"{i:30} {j}\n" for i, j in conditions.items())))
+    logger.info(f"packages with requirement conditions: {len(conditions)}")
 
     return conditions
-
-
-def get_blacklist(db):
-    """
-    """
-
-    blacklist = set()
-    reason = defaultdict(list)
-
-    def filter(title, *requests):
-        nonlocal blacklist
-        excluded = set()
-        for sql in requests:
-            logging.debug(f"sql: {sql}")
-            excluded = excluded.union(set(name for name, in db.execute(sql).fetchall()))
-        for name in excluded:
-            reason[name].append(title)
-        blacklist = blacklist.union(excluded)
-        logging.info(f"{title:>20}: {len(excluded):6}   blacklist:{len(blacklist):6}")
-
-    # remove ignored packaged (packages without release)
-    filter("ignored", 'select name from list_packages where ignore')
-
-    # remove packaged listed in TOOFAT
-    sql = "select name from list_packages where 0=1"
-    sql += "\n".join(f' or name like "{pattern}"' for pattern in TOOFAT)
-    filter("toobig", sql)
-
-    # remove packaged listed in THREATS
-    sql = "select name from list_packages where 0=1"
-    sql += "\n or name in (" + ",".join(f'"{thread}"' for thread in THREATS) + ")"
-    filter("threats", sql)
-
-    # remove packaged listed in SCAM
-    sql = "select name from list_packages where 0=1"
-    sql += "\n".join(f' or name like "{pattern}"' for pattern in SCAM)
-    filter("scam", sql)
-
-    # remove Plone (CMS), Django (web), Odoo (ERP) : too many packages
-    filter("Framework :: Plone",
-           "select distinct name from classifier where classifier like 'Framework :: Plone%'",
-           "select name from list_packages where name like 'Products.%' or name like 'collective.%'")
-
-    filter("Framework :: Django",
-           "select distinct name from classifier where classifier like 'Framework :: Django'",
-           "select name from list_packages where name like 'django%'")
-
-    filter("Framework :: Odoo",
-           "select distinct name from classifier where classifier like 'Framework :: Odoo'",
-           "select name from list_packages where name like 'odoo%'")
-
-    # remove packages without file
-    filter("without file",
-           "select name from package where name not in (select distinct name from file)")
-
-    # filter("description UNKNOWN", 'select name from package where description="UNKNOWN"')
-    # filter("missing description", 'select name from package where description=""')
-    # sql = 'select name from package '
-    # sql += 'where (description="" or description="UNKNOWN" or description is null)'
-    # sql += '  and (summary="" or summary="UNKNOWN" or summary is null)'
-    # filter("bad description", sql)
-
-    # filter(f"upload_time < {MIN_DATE}",
-    #        f'select name from file group by name having max(upload_time) < "{MIN_DATE}"')
-
-    return blacklist, reason
 
 
 def get_cached_list(filename, getter):
@@ -674,7 +631,7 @@ def get_cached_list(filename, getter):
     return resource
 
 
-def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False):
+def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False):
 
     # the root of the mirror
     web_root = pathlib.Path(web_root).expanduser()
@@ -694,11 +651,13 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None,
         normalized_names = dict((normalize(name), name) for name, in db.execute("select name from list_packages"))
         for cond in whitelist_cond:
             m = re.match(r"^([^=<>~]+)(.*)?$", cond)
-            name = normalized_names[normalize(m.group(1))]
+            name = normalize(m.group(1))
+            if name in normalized_names:
+                name = normalized_names[name]
             whitelist[name].add(m.group(2))
 
         for name, conds in whitelist.items():
-            logging.info(f"whitelist: {name} {conds}")
+            logger.info(f"whitelist: {name} {conds}")
             conditions[name] = set(conditions[name]).union(conds)
             if name in blacklist:
                 del blacklist[name]
@@ -717,20 +676,25 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None,
     download_size = 0
     index = 0
 
-    # ajoute la liste des "done" à la blacklist
-    z = pathlib.Path("done.txt")
+    # add the "done" list to the blacklist (faster)
+    z = pathlib.Path("done")
     if z.exists():
         for i in z.open():
             blacklist.add(i.strip())
-
-    downloaded = open("downloaded.txt", "a")
 
     session = requests.Session()
 
     with CtrlC(True):
         try:
 
-            for name, data in db_json.execute("select name, metadata from package"):
+            count = fetch_value(db, "select count(*) from MD.package")
+            progress = 0
+
+            for name, data in db.execute("select name, metadata from MD.package"):
+
+                progress += 1
+                if progress % 1000 == 0:
+                    logger.info(f"packages processed: {progress}/{count} only_whitelist={only_whitelist}")
 
                 # if a whitelist is provided, ignore blacklist and other packages
                 if only_whitelist:
@@ -739,7 +703,7 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None,
                 elif name in blacklist:
                     continue
 
-                logging.debug(f"process {name}")
+                logger.debug(f"process {name}")
 
                 data = json.loads(data)
                 info = data['info']
@@ -770,10 +734,8 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None,
                             download += 1
                             download_size += int(f["size"])
 
-                            logging.info(f"download {name}  {f['filename']}  {f['size']} bytes")
-                            logging.debug(f"file: {file}")
-
-                            print(f['url'], file=downloaded)
+                            logger.info(f"download {name}  {f['filename']}  {f['size']} bytes")
+                            logger.debug(f"file: {file}")
 
                             if not dry_run:
                                 if file.parent.is_file():
@@ -782,19 +744,17 @@ def download_packages(db, db_json, web_root, dry_run=False, whitelist_cond=None,
                                 with file.open("wb") as fp:
                                     fp.write(session.get(f['url']).content)
 
-                with open("done.txt", "a") as fp:
+                with open("done", "a") as fp:
                     print(name, file=fp)
 
         except Exception as e:
-            logging.error(f"{e!r}")
+            logger.error(f"{e!r}")
             raise e
 
         except KeyboardInterrupt:
-            logging.warning("interrupt")
+            logger.warning("interrupt")
 
-    downloaded.close()
-
-    print(f"index={index} exist={exist} download={download} download_size={download_size}")
+    logger.info(f"index={index} exist={exist} download={download} download_size={download_size}")
 
 
 def run(update=False, metadata=False, packages=False,  **kwargs):
@@ -805,6 +765,9 @@ def run(update=False, metadata=False, packages=False,  **kwargs):
 
     create_db(db, db_json)
 
+    db_json.close()
+    db.execute("attach database ? as MD", ("pypi_json.db",))
+
     white_list = kwargs["add"]
     for fn in kwargs["add_list"]:
         white_list = list(white_list)
@@ -813,27 +776,27 @@ def run(update=False, metadata=False, packages=False,  **kwargs):
                 white_list.append(r.strip())
 
     if not update and not metadata and not packages and len(white_list) == 0:
-        logging.warning("nothing to do, did you mess up -u, -m, -p or -a/-A ?")
+        logger.warning("nothing to do, did you mess up -u, -m, -p or -a/-A ?")
     else:
         if update:
-            update_list(client, db, db_json)
+            update_list(client, db)
 
         if metadata:
-            download_metadata(db, db_json)
+            download_metadata(db)
 
         if packages or len(white_list) != 0:
             web_root = kwargs["web"]
             dry_run = kwargs["dry_run"]
             only_wl = not packages
-            download_packages(db, db_json, web_root, dry_run, white_list, only_wl)
+            download_packages(db, web_root, dry_run, white_list, only_wl)
 
-    db_json.close()
     db.close()
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
 @click.option("-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose")
+@click.option("-lf", "--logfile", help="logfile")
 @click.option("-n", "--dry-run", is_flag=True, default=False, help="dry run")
 @click.option("-u", "--update", is_flag=True, default=False, help="update list of packages")
 @click.option("-m", "--metadata", is_flag=True, default=False, help="download JSON metadata")
@@ -844,23 +807,11 @@ def run(update=False, metadata=False, packages=False,  **kwargs):
 @click.option("--web", default="~/data/pypi", help="mirror directory")
 def main(**kwargs):
 
-    # verbose/logger
-    if sys.stdout.isatty():
-        logging.addLevelName(logging.DEBUG, "\033[0;32m%s\033[0m" % logging.getLevelName(logging.DEBUG))
-        logging.addLevelName(logging.INFO, "\033[1;36m%s\033[0m" % logging.getLevelName(logging.INFO))
-        logging.addLevelName(logging.WARNING, "\033[1;33m%s\033[0m" % logging.getLevelName(logging.WARNING))
-        logging.addLevelName(logging.ERROR, "\033[0;31m%s\033[0m" % logging.getLevelName(logging.ERROR))
-        logging.addLevelName(logging.FATAL, "\033[1;41m%s\033[0m" % logging.getLevelName(logging.FATAL))
-
-    if kwargs["verbose"]:
-        logging.basicConfig(format="%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S", level=logging.DEBUG)
-        logging.debug("args %r", kwargs)
-    elif kwargs["non_verbose"]:
-        logging.basicConfig(format="%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S", level=logging.WARNING)
-    else:
-        logging.basicConfig(format="%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S", level=logging.INFO)
+    init_logger(kwargs)
 
     run(**kwargs)
+
+    logger.info("PyPIM completed")
 
 
 if __name__ == "__main__":

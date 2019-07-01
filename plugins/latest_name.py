@@ -2,6 +2,9 @@ import logging
 from packaging.version import parse, InvalidVersion
 
 
+logger = logging.getLogger("PyPIM")
+
+
 def parse_conditions(conditions):
     """
     """
@@ -63,7 +66,7 @@ class LatestReleaseFilter:
         except ValueError:
             return
         if self.keep > 0:
-            logging.info(f"Initialized latest releases plugin with keep={self.keep}")
+            logger.info(f"Initialized latest releases plugin with keep={self.keep}")
 
     def filter(self, info, releases, conditions=None):
         """
@@ -98,13 +101,10 @@ class LatestReleaseFilter:
             # never remove the stable/official version
             latest[0] = current_version
 
-        logging.debug(f"old {versions}")
-        logging.debug(f"new {latest}")
-
         after = len(latest)
         latest = set(latest)
         for version in list(releases.keys()):
             if version not in latest:
                 del releases[version]
 
-        logging.debug(f"{self.name}: releases removed: {before - after}")
+        logger.debug(f"{self.name}: {versions} -> {latest} removed: {before - after}")

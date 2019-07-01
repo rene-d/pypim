@@ -1,6 +1,8 @@
 import logging
 from typing import List
 
+logger = logging.getLogger("PyPIM")
+
 
 DEPRECATED_PYTHON = set(['3.0', '3.1', '3.2', '3.3', '3.4',
                          '2.3', '2.4', '2.5', '2.6',
@@ -24,7 +26,7 @@ class ExcludePlatformFilter:
         Initialize the plugin reading patterns from the config.
         """
         if self._patterns or self._packagetypes:
-            logging.debug(
+            logger.debug(
                 "Skipping initalization of Exclude Platform plugin. "
                 + "Already initialized"
             )
@@ -33,7 +35,7 @@ class ExcludePlatformFilter:
         try:
             tags = self.configuration["blacklist"]["platforms"].split()
         except KeyError:
-            logging.error(f"Plugin {self.name}: missing platforms= setting")
+            logger.error(f"Plugin {self.name}: missing platforms= setting")
             return
 
         for platform in tags:
@@ -67,7 +69,7 @@ class ExcludePlatformFilter:
                 )
                 self._packagetypes.extend(["bdist_rpm"])
 
-        logging.info(f"Initialized {self.name} plugin with {self._patterns!r}")
+        logger.info(f"Initialized {self.name} plugin with {self._patterns!r}")
 
     def filter(self, info, releases):
         """
@@ -88,7 +90,7 @@ class ExcludePlatformFilter:
                 del releases[version]
             else:
                 releases[version] = new_files
-        logging.debug(f"{self.name}: filenames removed: {removed}")
+        logger.debug(f"{self.name}: filenames removed: {removed}")
 
     def _check_match(self, file_desc) -> bool:
         """
