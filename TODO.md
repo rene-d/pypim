@@ -21,11 +21,13 @@ downloads the 3 most recent versions. The old one, although present in the mirro
 
 ## ~~Look for previously downloaded releases~~
 
-_Command-line option `--remove-orphans`._
+_See previous topic. The inconvenient is that mirror will always grow._
 
 When a release becomes too old, it won't be listed in index.html. And not deleted from disk.
 
-## Look for orphan files
+## ~~Look for orphan files~~
+
+_Command-line option `--remove-orphans`._
 
 If a previously downloaded file is removed from a release, it will remain in the mirror.
 
