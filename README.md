@@ -74,7 +74,7 @@ The metadata is stored in both raw and decoded formats, in two [SQLite3](https:/
 
 ## Some reference links
 
-* [PEP 426 -- Metadata for Python Software Packages 2.0]([https://www.python.org/dev/peps/pep-0426/)
+* [PEP 426 -- Metadata for Python Software Packages 2.0](https://www.python.org/dev/peps/pep-0426/)
 * [PEP 566 -- Metadata for Python Software Packages 2.1](https://www.python.org/dev/peps/pep-0566/)
 * [Warehouse](https://warehouse.readthedocs.io) : web application that runs [PyPI](https://pypi.org)
 * [PIP configuration file](https://pip.pypa.io/en/stable/user_guide/#config-file)
