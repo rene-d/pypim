@@ -156,24 +156,35 @@ def fetch_value(db, sql, params=(), default_value=0):
         return default_value
 
 
-def create_db(db, db_json):
+def get_meta_db_path(db):
+    for i in db.execute("pragma database_list;"):
+        if i[1] == "main":
+            f = pathlib.Path(i[2])
+            f = f.with_name(f.stem + "_json" + f.suffix)
+            logger.debug(f"using json db: {f}")
+            return f.as_posix()
+
+
+def create_db(db, use_meta_db):
     """
     initalize the both databases
         db          decoded metadata into SQL tables
         db_json     the raw metadata in JSON format
     """
 
-    db_json.executescript(
-        """\
+    if use_meta_db:
+        db.execute("attach database ? as meta_db", (get_meta_db_path(db),))
+        db.executescript(
+            """\
 -- package JSON metadata
-create table if not exists package (
+create table if not exists meta_db.package (
     name            text not null primary key,
     last_serial     integer not null,
     metadata        blob
 );
 """
-    )
-    logger.debug("metadata database initialized")
+        )
+        db.execute("detach database meta_db")
 
     db.executescript(
         """\
@@ -293,16 +304,17 @@ create trigger if not exists file_trigger
     logger.debug("packages database initialized")
 
 
-def delete_package(cur, name):
+def delete_package(cur, name, use_meta_db):
     """
     delete a package from all the tables
     """
 
     cur.execute("delete from package where name=?", (name,))
-    cur.execute("delete from meta_db.package where name=?", (name,))
+    if use_meta_db:
+        cur.execute("delete from meta_db.package where name=?", (name,))
 
 
-def add_package(db, orig_name, data):
+def add_package(db, orig_name, data, use_meta_db):
     """
     add a package from the JSON metadata
     """
@@ -318,7 +330,7 @@ def add_package(db, orig_name, data):
         logger.eror(f"{name} != {orig_name}")
         assert name == orig_name
 
-    delete_package(cur, name)
+    delete_package(cur, name, use_meta_db)
 
     classifiers = info["classifiers"]
     requires_dist = info["requires_dist"]
@@ -369,10 +381,11 @@ def add_package(db, orig_name, data):
             insert_row(cur, "file", file)
 
     # store the raw JSON
-    cur.execute(
-        "insert into meta_db.package (name,last_serial,metadata) values (?,?,?)",
-        (name, last_serial, data),
-    )
+    if use_meta_db:
+        cur.execute(
+            "insert into meta_db.package (name,last_serial,metadata) values (?,?,?)",
+            (name, last_serial, data),
+        )
 
     cur.close()
 
@@ -425,14 +438,15 @@ def update_list(client, db, clear_ignore=False):
         # unignore packages modified since our last update
         db.execute("update list_packages set ignore=false where last_serial>?", (db_serial,))
 
+        # print the list of updated packages
+        for row in db.execute("select name from list_packages where last_serial>?", (db_serial,)):
+            name = row[0]
+            logger.debug(f"updated: {name}")
+
         updated = fetch_value(
             db, "select count(*) from list_packages where last_serial>?", db_serial
         )
         logger.info(f"updated: {updated}")
-
-        for row in db.execute("select name from list_packages where last_serial>?", (db_serial,)):
-            name = row[0]
-            logger.debug(f"updated: {name}")
 
     # print some stats
     total = fetch_value(db, "select count(*) from list_packages")
@@ -444,7 +458,7 @@ def update_list(client, db, clear_ignore=False):
     db.commit()
 
 
-def download_metadata(db):
+def download_metadata(db, use_meta_db):
     """
     download and parse JSON metadata
 
@@ -454,7 +468,8 @@ def download_metadata(db):
     the metadata is parsed and stored into tables of db
     """
 
-    db.execute("attach database ? as meta_db", ("pypi_json.db",))
+    if use_meta_db:
+        db.execute("attach database ? as meta_db", (get_meta_db_path(db),))
 
     # requests session to download the JSON metadata
     session = requests.Session()
@@ -465,7 +480,7 @@ select name from package where name not in (select name from list_packages)
 """
     for (name,) in db.execute(sql).fetchall():
         logger.debug(f"package removed from pypi: {name}")
-        delete_package(db, name)
+        delete_package(db, name, use_meta_db)
     db.commit()
 
     with CtrlC() as ctrl_c:
@@ -506,7 +521,7 @@ order by lp.last_serial
                 data = req.content
 
                 # parse and store the metadata
-                add_package(db, name, data)
+                add_package(db, name, data, use_meta_db)
                 db.commit()
 
             except (
@@ -528,10 +543,10 @@ order by lp.last_serial
     session.close()
 
     # sanitize metadata database...
-    db.execute("delete from meta_db.package where name not in (select name from package)")
-    db.commit()
-
-    db.execute("detach database meta_db")
+    if use_meta_db:
+        db.execute("delete from meta_db.package where name not in (select name from package)")
+        db.commit()
+        db.execute("detach database meta_db")
 
     # remove the file where we save the download progress
     z = pathlib.Path("done")
@@ -846,12 +861,12 @@ def remove_orphans(db, web_root):
 
 def run(update=False, metadata=False, packages=False, **kwargs):
 
+    use_meta_db = kwargs["raw"]
+
     db = sqlite3.connect("pypi.db")
-    db_json = sqlite3.connect("pypi_json.db")
     client = xmlrpc.client.ServerProxy("https://pypi.org/pypi")
 
-    create_db(db, db_json)
-    db_json.close()
+    create_db(db, use_meta_db)
 
     web_root = kwargs["web"]
     dry_run = kwargs["dry_run"]
@@ -873,7 +888,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
             update_list(client, db)
 
         if metadata:
-            download_metadata(db)
+            download_metadata(db, use_meta_db)
 
         if packages or len(white_list) != 0:
             only_wl = not packages
@@ -886,7 +901,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 @click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
 @click.option("-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose")
 @click.option("-lf", "--logfile", help="logfile")
-@click.option("-n", "--dry-run", is_flag=True, default=False, help="dry run")
+@click.option("-n", "--dry-run", is_flag=True, default=False, help="dry run (do not download package)")
 @click.option("-u", "--update", is_flag=True, default=False, help="update list of packages")
 @click.option("-m", "--metadata", is_flag=True, default=False, help="download JSON metadata")
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
@@ -900,7 +915,17 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 )
 @click.option("--web", default="~/data/pypi", help="mirror directory")
 @click.option("--remove-orphans", is_flag=True, help="find and remove orphan files")
+@click.option("--raw", is_flag=True, help="store raw JSON metadata in a separated database")
 def main(**kwargs):
+    """
+    Python Package Intelligent Mirroring
+
+    Mirrors the official Python Package Index (https://PyPI.org) with maximum control.
+
+    \b
+    Example:
+        pypim.py -lf mirror.log -nv -u -m -p -a PyXB==1.2.3 -A <(pip3 freeze)
+    """
 
     start_time = time.time()
     init_logger(kwargs)
