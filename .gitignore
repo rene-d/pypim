@@ -4,3 +4,6 @@
 *.pyc
 __pycache__/
 *.log
+done
+changelog.txt
+changelog.json

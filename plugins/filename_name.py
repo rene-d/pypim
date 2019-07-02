@@ -108,7 +108,7 @@ class ExcludePlatformFilter:
                 del releases[version]
             else:
                 releases[version] = new_files
-        logger.debug(f"{self.name}: filenames removed: {removed}")
+        logger.debug(f"{self.name}: removed: {removed}")
 
     def _check_match(self, file_desc) -> bool:
         """

@@ -20,6 +20,7 @@ from html import escape
 import pathlib
 import re
 import pickle
+from datetime import timedelta
 from plugins import filename_name, latest_name
 from plugins.blacklist import get_blacklist
 
@@ -57,11 +58,11 @@ def init_logger(kwargs):
     initialize the logger with a colored console and a file handlers
     """
 
-    filename = kwargs["logfile"]
+    filename = kwargs.get("logfile", None)
 
-    if kwargs["verbose"]:
+    if kwargs.get("verbose", False):
         level = logging.DEBUG
-    elif kwargs["non_verbose"]:
+    elif kwargs.get("non_verbose", False):
         level = logging.WARNING
     else:
         level = logging.INFO
@@ -85,9 +86,6 @@ def init_logger(kwargs):
     else:
         # if no file handler, we can reduce the level as asked
         logger.setLevel(level)
-
-    logger.info("PyPIM started")
-    logger.debug(f"args {kwargs!r}")
 
 
 class CtrlC:
@@ -258,11 +256,12 @@ create table if not exists file (
     url             text
 );
 
--- indices
+-- indexes
 create unique index if not exists package_uk on package (name,last_serial);
 create unique index if not exists release_pk on release (name,release);
 create index if not exists release_fk on release (name);
 create index if not exists file_fk on file (name,release);
+create unique index if not exists file_url on file (url);
 
 -- triggers
 create trigger if not exists classifier_trigger
@@ -294,14 +293,13 @@ create trigger if not exists file_trigger
     logger.debug("packages database initialized")
 
 
-def delete_package(db, name):
+def delete_package(cur, name):
     """
     delete a package from all the tables
     """
-    cur = db.cursor()
+
     cur.execute("delete from package where name=?", (name,))
-    cur.execute("delete from MD.package where name=?", (name,))
-    cur.close()
+    cur.execute("delete from meta_db.package where name=?", (name,))
 
 
 def add_package(db, orig_name, data):
@@ -309,14 +307,18 @@ def add_package(db, orig_name, data):
     add a package from the JSON metadata
     """
 
+    metadata = json.loads(data)
+
     cur = db.cursor()
 
-    info = data["info"]
+    info = metadata["info"]
     name = info["name"]
 
     if name != orig_name:
         logger.eror(f"{name} != {orig_name}")
         assert name == orig_name
+
+    delete_package(cur, name)
 
     classifiers = info["classifiers"]
     requires_dist = info["requires_dist"]
@@ -327,7 +329,7 @@ def add_package(db, orig_name, data):
     del info["requires_dist"]
 
     # ajoute le last_serial (plutôt que dans une table séparée)
-    last_serial = data["last_serial"]
+    last_serial = metadata["last_serial"]
     info["last_serial"] = last_serial
 
     # add the package
@@ -346,7 +348,7 @@ def add_package(db, orig_name, data):
             row["requires_dist"] = dist
             insert_row(cur, "requires_dist", row)
 
-    for release, files in data["releases"].items():
+    for release, files in metadata["releases"].items():
 
         # add release
         insert_row(cur, "release", {"name": name, "release": release})
@@ -359,17 +361,22 @@ def add_package(db, orig_name, data):
             # we need only the SHA256 digest
             file["digests_sha256"] = file["digests"]["sha256"]
 
+            # we don't care about these fields
             del file["digests"]
             del file["downloads"]
             del file["md5_digest"]
 
             insert_row(cur, "file", file)
 
+    # store the raw JSON
+    cur.execute(
+        "insert into meta_db.package (name,last_serial,metadata) values (?,?,?)",
+        (name, last_serial, data),
+    )
+
     cur.close()
 
     logger.debug(f"package added: {name} {last_serial}")
-
-    return last_serial
 
 
 def update_list(client, db, clear_ignore=False):
@@ -447,6 +454,8 @@ def download_metadata(db):
     the metadata is parsed and stored into tables of db
     """
 
+    db.execute("attach database ? as meta_db", ("pypi_json.db",))
+
     # requests session to download the JSON metadata
     session = requests.Session()
 
@@ -497,15 +506,7 @@ order by lp.last_serial
                 data = req.content
 
                 # parse and store the metadata
-                delete_package(db, name)
-                last_serial = add_package(db, name, json.loads(data))
-
-                # store the raw JSON
-                db.execute(
-                    "insert into MD.package (name,last_serial,metadata) values (?,?,?)",
-                    (name, last_serial, data),
-                )
-
+                add_package(db, name, data)
                 db.commit()
 
             except (
@@ -527,8 +528,10 @@ order by lp.last_serial
     session.close()
 
     # sanitize metadata database...
-    db.execute("delete from MD.package where name not in (select name from package)")
+    db.execute("delete from meta_db.package where name not in (select name from package)")
     db.commit()
+
+    db.execute("detach database meta_db")
 
     # remove the file where we save the download progress
     z = pathlib.Path("done")
@@ -536,7 +539,7 @@ order by lp.last_serial
         z.unlink()
 
 
-def build_index(name, last_serial, releases):
+def build_index(name, last_serial, releases, web_root):
     """
     create the index.html page for the given name/releases/last_serial
     """
@@ -548,7 +551,12 @@ def build_index(name, last_serial, releases):
     for _, r in versions:
         for f in releases[r]:
             url = f["url"]
-            url = url[len("https://files.pythonhosted.org/") :]
+            url = url[len("https://files.pythonhosted.org/"):]
+
+            # if file is present, we add it to the index regardless of the filters
+            p = web_root / url
+            if not p.is_file():
+                continue
 
             if f["requires_python"]:
                 req = escape(f["requires_python"])
@@ -580,6 +588,7 @@ def build_index(name, last_serial, releases):
 <!--SERIAL {last_serial}-->\
 """
     )
+
     return index_html
 
 
@@ -760,22 +769,16 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                         }
                     )
 
+                unfiltered_releases = releases.copy()
+
                 filter_releases.filter(info, releases, conditions.get(name, None))
                 filter_platform.filter(info, releases)
 
-                h = build_index(name, last_serial, releases)
-                index += 1
-
-                if not dry_run:
-                    p = web_root / "simple" / normalize(name) / "index.html"
-                    p.parent.mkdir(exist_ok=True, parents=True)
-                    with p.open("w") as fp:
-                        fp.write(h)
-
+                # download selected files in selected releases
                 for r in releases.values():
                     for f in r:
                         url = f["url"]
-                        url = url[len("https://files.pythonhosted.org/") :]
+                        url = url[len("https://files.pythonhosted.org/"):]
 
                         file = web_root / url
                         if file.exists() and file.stat().st_size == int(f["size"]):
@@ -794,6 +797,16 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                                 with file.open("wb") as fp:
                                     fp.write(session.get(f["url"]).content)
 
+                # build the index.html file
+                simple_index = build_index(name, last_serial, unfiltered_releases, web_root)
+                index += 1
+
+                if not dry_run:
+                    p = web_root / "simple" / normalize(name) / "index.html"
+                    p.parent.mkdir(exist_ok=True, parents=True)
+                    with p.open("w") as fp:
+                        fp.write(simple_index)
+
                 with open("done", "a") as fp:
                     print(name, file=fp)
 
@@ -807,6 +820,30 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
     logger.info(f"index={index} exist={exist} download={download} download_size={download_size}")
 
 
+def remove_orphans(db, web_root):
+    """
+    find and delete files that are no longer in file table
+    """
+
+    p = pathlib.Path(web_root).expanduser()
+    lp = len(p.as_posix())
+
+    logger.info(f"looking for orphan files in {p}")
+
+    removed = 0
+    p /= "packages"
+    for f in p.glob("**/*"):
+        if f.is_file():
+            url = "https://files.pythonhosted.org" + f.as_posix()[lp:]
+            n = fetch_value(db, "select count(*) from file where url=?", (url,))
+            if n == 0:
+                f.unlink()
+                logger.debug(f"unlink orphan {f}")
+                removed += 1
+
+    logger.info(f"files removed: {removed}")
+
+
 def run(update=False, metadata=False, packages=False, **kwargs):
 
     db = sqlite3.connect("pypi.db")
@@ -814,9 +851,10 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     client = xmlrpc.client.ServerProxy("https://pypi.org/pypi")
 
     create_db(db, db_json)
-
     db_json.close()
-    db.execute("attach database ? as MD", ("pypi_json.db",))
+
+    web_root = kwargs["web"]
+    dry_run = kwargs["dry_run"]
 
     white_list = kwargs["add"]
     for fn in kwargs["add_list"]:
@@ -825,7 +863,10 @@ def run(update=False, metadata=False, packages=False, **kwargs):
             for r in fp:
                 white_list.append(r.strip())
 
-    if not update and not metadata and not packages and len(white_list) == 0:
+    if kwargs["remove_orphans"]:
+        remove_orphans(db, web_root)
+
+    elif not update and not metadata and not packages and len(white_list) == 0:
         logger.warning("nothing to do, did you mess up -u, -m, -p or -a/-A ?")
     else:
         if update:
@@ -835,8 +876,6 @@ def run(update=False, metadata=False, packages=False, **kwargs):
             download_metadata(db)
 
         if packages or len(white_list) != 0:
-            web_root = kwargs["web"]
-            dry_run = kwargs["dry_run"]
             only_wl = not packages
             download_packages(db, web_root, dry_run, white_list, only_wl)
 
@@ -860,17 +899,19 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     type=click.Path(exists=True),
 )
 @click.option("--web", default="~/data/pypi", help="mirror directory")
+@click.option("--remove-orphans", is_flag=True, help="find and remove orphan files")
 def main(**kwargs):
 
     start_time = time.time()
     init_logger(kwargs)
 
+    logger.info("PyPIM started")
+    logger.debug(f"args {kwargs!r}")
+
     run(**kwargs)
 
     elapsed_time = time.time() - start_time
-    pretty = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
-
-    logger.info(f"PyPIM completed in {pretty}")
+    logger.info(f"PyPIM completed in {timedelta(seconds=elapsed_time)}")
 
 
 if __name__ == "__main__":
