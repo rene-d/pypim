@@ -909,6 +909,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
 @click.option("-a", "--add", multiple=True, help="package name (trigger mirroring)")
 @click.option(
+    "-r",
     "-A",
     "--add-list",
     multiple=True,
