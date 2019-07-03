@@ -566,7 +566,7 @@ def build_index(name, last_serial, releases, web_root):
     for _, r in versions:
         for f in releases[r]:
             url = f["url"]
-            url = url[len("https://files.pythonhosted.org/"):]
+            url = url[len("https://files.pythonhosted.org/") :]
 
             # if file is present, we add it to the index regardless of the filters
             p = web_root / url
@@ -793,7 +793,7 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                 for r in releases.values():
                     for f in r:
                         url = f["url"]
-                        url = url[len("https://files.pythonhosted.org/"):]
+                        url = url[len("https://files.pythonhosted.org/") :]
 
                         file = web_root / url
                         if file.exists() and file.stat().st_size == int(f["size"]):
@@ -901,7 +901,9 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 @click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
 @click.option("-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose")
 @click.option("-lf", "--logfile", help="logfile")
-@click.option("-n", "--dry-run", is_flag=True, default=False, help="dry run (do not download package)")
+@click.option(
+    "-n", "--dry-run", is_flag=True, default=False, help="dry run (do not download package)"
+)
 @click.option("-u", "--update", is_flag=True, default=False, help="update list of packages")
 @click.option("-m", "--metadata", is_flag=True, default=False, help="download JSON metadata")
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
@@ -913,7 +915,9 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     help="package list (trigger mirroring)",
     type=click.Path(exists=True),
 )
-@click.option("--web", default="~/data/pypi", help="mirror directory")
+@click.option(
+    "--web", default="~/data/pypi", help="mirror directory", type=click.Path(dir_okay=True)
+)
 @click.option("--remove-orphans", is_flag=True, help="find and remove orphan files")
 @click.option("--raw", is_flag=True, help="store raw JSON metadata in a separated database")
 def main(**kwargs):
