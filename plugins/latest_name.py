@@ -2,7 +2,7 @@ import logging
 from packaging.version import parse, InvalidVersion
 
 
-logger = logging.getLogger("PyPIM")
+logger = logging.getLogger(__name__)
 
 
 def parse_conditions(conditions):

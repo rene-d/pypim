@@ -2,7 +2,7 @@ from collections import defaultdict
 import logging
 
 
-logger = logging.getLogger("PyPIM")
+logger = logging.getLogger(__name__)
 
 
 # packages too big or updated too frequently

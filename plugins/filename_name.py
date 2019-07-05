@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-logger = logging.getLogger("PyPIM")
+logger = logging.getLogger(__name__)
 
 
 DEPRECATED_PYTHON = set(

@@ -28,7 +28,7 @@ from plugins.blacklist import get_blacklist
 
 
 # create logger for our app
-logger = logging.getLogger("PyPIM")
+logger = logging.getLogger(__name__)
 
 
 class ColoredFormatter(logging.Formatter):
