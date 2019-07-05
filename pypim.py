@@ -538,9 +538,12 @@ order by lp.last_serial
 
             processed += 1
 
-    logger.info(f"packages processed: {processed}")
-    if len(rows) != processed:
-        logger.warning(f"packages remainging: {len(rows) - processed}")
+        logger.info(f"packages processed: {processed}")
+        if len(rows) != processed:
+            logger.warning(f"packages remainging: {len(rows) - processed}")
+
+        if ctrl_c:
+            exit(0)
 
     session.close()
 
@@ -731,9 +734,9 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
 
     session = requests.Session()
 
-    with CtrlC(True):
-        try:
+    with CtrlC(True) as ctrl_c:
 
+        try:
             count = fetch_value(db, "select count(*) from package")
             progress = 0
 
@@ -823,7 +826,10 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
         except KeyboardInterrupt:
             logger.warning("interrupt")
 
-    logger.info(f"index={index} exist={exist} download={download} download_size={download_size}")
+        logger.info(f"index={index} exist={exist} download={download} download_size={download_size}")
+
+        if ctrl_c:
+            exit(0)
 
 
 def remove_orphans(db, web_root):
