@@ -543,6 +543,7 @@ order by lp.last_serial
             logger.warning(f"packages remainging: {len(rows) - processed}")
 
         if ctrl_c:
+            logging.warning("terminated")
             exit(0)
 
     session.close()
@@ -710,7 +711,8 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
             logger.info(f"whitelist: {name} {conds}")
             conditions[name] = set(conditions[name]).union(conds)
             if name in blacklist:
-                del blacklist[name]
+                logging.info(f"unblacklisting {name}")
+                blacklist.remove(name)
 
     # initialize plugins borrowed from bandersnatch
     filter_releases = latest_name.LatestReleaseFilter()
@@ -829,6 +831,7 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
         logger.info(f"index={index} exist={exist} download={download} download_size={download_size}")
 
         if ctrl_c:
+            logging.warning("terminated")
             exit(0)
 
 
