@@ -8,15 +8,20 @@ cf. https://warehouse.pypa.io/api-reference/xml-rpc/
 import xmlrpc.client
 import json
 import click
-import sys
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.argument("name")
-def main(**kwargs):
+@click.option("--test", is_flag=True, default=False, help="test.pypi.org")
+def main(name, test):
 
-    client = xmlrpc.client.ServerProxy('https://pypi.org/pypi')
-    releases = client.package_releases(kwargs['name'], True)
+    if test:
+        uri = "https://test.pypi.org/pypi"
+    else:
+        uri = "https://pypi.org/pypi"
+
+    client = xmlrpc.client.ServerProxy(uri)
+    releases = client.package_releases(name, True)
 
     print(json.dumps(releases, indent=2))
 

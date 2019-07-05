@@ -90,8 +90,8 @@ def main(**kwargs):
     last_serial = client.changelog_last_serial()
     logger.info(f"server last_serial = {last_serial}")
 
-    if kwargs['last_serial'] != 0:
-        last_serial = kwargs['last_serial']
+    if kwargs["last_serial"] != 0:
+        last_serial = kwargs["last_serial"]
         logger.info(f"using last_serial = {last_serial}")
     else:
         try:

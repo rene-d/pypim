@@ -16,11 +16,13 @@ import requests
 import signal
 from collections import defaultdict
 from packaging.version import parse
+from packaging.utils import canonicalize_name  # lowercase, only hyphen PEP503
 from html import escape
 import pathlib
 import re
 import pickle
 from datetime import timedelta
+from urllib.parse import urlparse
 from plugins import filename_name, latest_name
 from plugins.blacklist import get_blacklist
 
@@ -254,11 +256,11 @@ create table if not exists file (
     release         text not null,
     comment_text    text,
     -- digests md5 sha256
-    digests_sha256  text,
-    -- downloads
+    -- "downloads": -1
     filename        text,
     has_sig         text,
     -- md5_digest
+    sha256_digest   text,
     packagetype     text,
     python_version  text,
     requires_python text,
@@ -371,7 +373,7 @@ def add_package(db, orig_name, data, use_meta_db):
             file["release"] = release
 
             # we need only the SHA256 digest
-            file["digests_sha256"] = file["digests"]["sha256"]
+            file["sha256_digest"] = file["digests"]["sha256"]
 
             # we don't care about these fields
             del file["digests"]
@@ -424,7 +426,10 @@ def update_list(client, db, clear_ignore=False):
         ignore_flags = defaultdict(lambda: False)
         if not clear_ignore:
             # fetch the ignore flags
-            for row in db.execute("select name,ignore from list_packages"):
+            # for packages not modified since the last update
+            for row in db.execute(
+                "select name,ignore from list_packages where last_serial<=?", (db_serial,)
+            ):
                 ignore_flags[row[0]] = row[1]
 
         # replace the list of packages with the fresh one, ignore flag preserved
@@ -434,9 +439,6 @@ def update_list(client, db, clear_ignore=False):
             "insert into list_packages (name,last_serial,ignore) values (?,?,?)",
             [(name, last_serial, ignore_flags[name]) for name, last_serial in packages.items()],
         )
-
-        # unignore packages modified since our last update
-        db.execute("update list_packages set ignore=false where last_serial>?", (db_serial,))
 
         # print the list of updated packages
         for row in db.execute("select name from list_packages where last_serial>?", (db_serial,)):
@@ -458,7 +460,7 @@ def update_list(client, db, clear_ignore=False):
     db.commit()
 
 
-def download_metadata(db, use_meta_db):
+def download_metadata(db, use_meta_db, pypi_uri):
     """
     download and parse JSON metadata
 
@@ -510,7 +512,7 @@ order by lp.last_serial
             logger.info(f"bump package {name} from serial {row[2]} to {row[1]}")
 
             try:
-                url = f"https://pypi.org/pypi/{name}/json"
+                url = f"{pypi_uri}/{name}/json"
                 req = session.get(url, headers={"Content-Type": "application/json"})
                 if req.status_code == 404:
                     # weird... package is listed in list_packages
@@ -565,11 +567,10 @@ def build_index(name, last_serial, releases, web_root):
 
     for _, r in versions:
         for f in releases[r]:
-            url = f["url"]
-            url = url[len("https://files.pythonhosted.org/") :]
+            path = urlparse(f["url"]).path[1:]
 
             # if file is present, we add it to the index regardless of the filters
-            p = web_root / url
+            p = web_root / path
             if not p.is_file():
                 continue
 
@@ -577,13 +578,13 @@ def build_index(name, last_serial, releases, web_root):
                 req = escape(f["requires_python"])
                 index_html.append(
                     f"""\
-<a href="../../{url}#sha256={f['digests']['sha256']}" data-requires-python="{req}">{f['filename']}</a><br/>
+<a href="../../{path}#sha256={f['digests']['sha256']}" data-requires-python="{req}">{f['filename']}</a><br/>
 """
                 )
             else:
                 index_html.append(
                     f"""\
-<a href="../../{url}#sha256={f['digests']['sha256']}">{f['filename']}</a><br/>
+<a href="../../{path}#sha256={f['digests']['sha256']}">{f['filename']}</a><br/>
 """
                 )
     index_html = (
@@ -605,16 +606,6 @@ def build_index(name, last_serial, releases, web_root):
     )
 
     return index_html
-
-
-def normalize(name):
-    """
-    normalize a package name: lowercase, only hyphen
-    """
-    name = name.lower()
-    name = name.replace("_", "-")
-    name = name.replace(".", "-")
-    return name
 
 
 def compute_requirements(db, blacklist=set()):
@@ -701,14 +692,15 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
         whitelist_cond
     ) != 0:
         whitelist = defaultdict(set)
-        normalized_names = dict(
-            (normalize(name), name) for name, in db.execute("select name from list_packages")
+        canonicalize_named_names = dict(
+            (canonicalize_name(name), name)
+            for name, in db.execute("select name from list_packages")
         )
         for cond in whitelist_cond:
             m = re.match(r"^([^=<>~]+)(.*)?$", cond)
-            name = normalize(m.group(1))
-            if name in normalized_names:
-                name = normalized_names[name]
+            name = canonicalize_name(m.group(1))
+            if name in canonicalize_named_names:
+                name = canonicalize_named_names[name]
             whitelist[name].add(m.group(2))
 
         for name, conds in whitelist.items():
@@ -772,7 +764,7 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                 #   releases = data['releases']
                 info = {"name": name, "version": version}
                 releases = defaultdict(list)
-                sql = "select release,filename,url,size,requires_python,digests_sha256 from file where name=?"
+                sql = "select release,filename,url,size,requires_python,sha256_digest from file where name=?"
                 for row in db.execute(sql, (name,)):
                     releases[row[0]].append(
                         {
@@ -792,10 +784,9 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                 # download selected files in selected releases
                 for r in releases.values():
                     for f in r:
-                        url = f["url"]
-                        url = url[len("https://files.pythonhosted.org/") :]
+                        path = urlparse(f["url"]).path[1:]
 
-                        file = web_root / url
+                        file = web_root / path
                         if file.exists() and file.stat().st_size == int(f["size"]):
                             exist += 1
                         else:
@@ -817,7 +808,7 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                 index += 1
 
                 if not dry_run:
-                    p = web_root / "simple" / normalize(name) / "index.html"
+                    p = web_root / "simple" / canonicalize_name(name) / "index.html"
                     p.parent.mkdir(exist_ok=True, parents=True)
                     with p.open("w") as fp:
                         fp.write(simple_index)
@@ -862,9 +853,12 @@ def remove_orphans(db, web_root):
 def run(update=False, metadata=False, packages=False, **kwargs):
 
     use_meta_db = kwargs["raw"]
+    pypi_uri = "https://pypi.org/pypi"
+    if kwargs["test"]:
+        pypi_uri = "https://test.pypi.org/pypi"
 
-    db = sqlite3.connect("pypi.db")
-    client = xmlrpc.client.ServerProxy("https://pypi.org/pypi")
+    db = sqlite3.connect(kwargs["db"])
+    client = xmlrpc.client.ServerProxy(pypi_uri)
 
     create_db(db, use_meta_db)
 
@@ -888,7 +882,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
             update_list(client, db)
 
         if metadata:
-            download_metadata(db, use_meta_db)
+            download_metadata(db, use_meta_db, pypi_uri)
 
         if packages or len(white_list) != 0:
             only_wl = not packages
@@ -917,10 +911,22 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     type=click.Path(exists=True),
 )
 @click.option(
-    "--web", default="~/data/pypi", help="mirror directory", type=click.Path(dir_okay=True)
+    "--web",
+    default="~/data/pypi",
+    help="mirror directory",
+    type=click.Path(dir_okay=True),
+    show_default=True,
+)
+@click.option(
+    "--db",
+    default="pypi.db",
+    help="packages database",
+    type=click.Path(file_okay=True),
+    show_default=True,
 )
 @click.option("--remove-orphans", is_flag=True, help="find and remove orphan files")
 @click.option("--raw", is_flag=True, help="store raw JSON metadata in a separated database")
+@click.option("--test", is_flag=True, help="use test.pypi.org")
 def main(**kwargs):
     """
     Python Package Intelligent Mirroring

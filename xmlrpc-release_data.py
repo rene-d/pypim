@@ -11,10 +11,10 @@ import click
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("--serial", is_flag=True, default=False, help="serial")
-@click.option("--json", "json_output", is_flag=True, default=False, help="JSON")
+@click.argument("name")
+@click.argument("release")
 @click.option("--test", is_flag=True, default=False, help="test.pypi.org")
-def main(serial, json_output, test):
+def main(name, release, test):
 
     if test:
         uri = "https://test.pypi.org/pypi"
@@ -22,17 +22,9 @@ def main(serial, json_output, test):
         uri = "https://pypi.org/pypi"
 
     client = xmlrpc.client.ServerProxy(uri)
+    data = client.release_data(name, release)
 
-    if serial:
-        packages = client.list_packages_with_serial()
-    else:
-        packages = client.list_packages()
-
-    if json_flag:
-        print(json.dumps(packages, indent=2))
-    else:
-        for package in sorted(packages):
-            print(package)
+    print(json.dumps(data, indent=2))
 
 
 if __name__ == "__main__":
