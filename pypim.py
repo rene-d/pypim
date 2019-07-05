@@ -454,7 +454,7 @@ def update_list(client, db, clear_ignore=False):
     total = fetch_value(db, "select count(*) from list_packages")
     logger.info(f"packages: {total}")
 
-    ignored = fetch_value(db, "select count(*) from list_packages where ignore")
+    ignored = fetch_value(db, "select count(*) from list_packages where ignore=1")
     logger.info(f"ignored: {ignored}")
 
     db.commit()
@@ -494,7 +494,7 @@ select name from package where name not in (select name from list_packages)
 select lp.name,lp.last_serial,p.last_serial
 from list_packages as lp
 left join package as p on lp.name=p.name
-where lp.ignore=false
+where lp.ignore=0
   and (p.last_serial<lp.last_serial or p.name is null)
 order by lp.last_serial
 """
@@ -533,7 +533,7 @@ order by lp.last_serial
                 Exception,
             ) as e:
                 logger.error(f"error {name} {e!r}")
-                db.execute("update list_packages set ignore=true where name=?", (name,))
+                db.execute("update list_packages set ignore=1 where name=?", (name,))
                 db.commit()
 
             processed += 1
