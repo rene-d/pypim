@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pypim")
 
 
 DEPRECATED_PYTHON = set(
@@ -45,8 +45,7 @@ class ExcludePlatformFilter:
         """
         if self._patterns or self._packagetypes:
             logger.debug(
-                "Skipping initalization of Exclude Platform plugin. "
-                + "Already initialized"
+                "Skipping initalization of Exclude Platform plugin. " + "Already initialized"
             )
             return
 

@@ -72,6 +72,19 @@ The metadata is stored in both raw and decoded formats, in two [SQLite3](https:/
 
 #### Add a whitelist
 
+## Examples
+
+### Sync the test index
+```bash
+./pypim.py -v --db test.db --test -um
+```
+
+### Sync the whole index with our package requirements
+```bash
+./pypim.py -lf mirror.log -ump -a pyxb==1.2.3 -r <(pip3 freeze) --web /data/mirrors/pypi
+```
+
+
 ## Some reference links
 
 * [PEP 426 -- Metadata for Python Software Packages 2.0](https://www.python.org/dev/peps/pep-0426/)

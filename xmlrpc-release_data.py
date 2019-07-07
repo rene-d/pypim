@@ -1,8 +1,7 @@
 #! /usr/bin/env python3
 
 """
-retourne la liste des packages
-cf. https://warehouse.pypa.io/api-reference/xml-rpc/
+Retrieve metadata describing a specific release
 """
 
 import xmlrpc.client
@@ -21,9 +20,10 @@ def main(name, release, test):
     else:
         uri = "https://pypi.org/pypi"
 
+    # ref: https://warehouse.pypa.io/api-reference/xml-rpc/
     client = xmlrpc.client.ServerProxy(uri)
-    data = client.release_data(name, release)
 
+    data = client.release_data(name, release)
     print(json.dumps(data, indent=2))
 
 

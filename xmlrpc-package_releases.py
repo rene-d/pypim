@@ -1,8 +1,7 @@
 #! /usr/bin/env python3
 
 """
-retourne la liste des packages
-cf. https://warehouse.pypa.io/api-reference/xml-rpc/
+Retrieve a list of the releases for the given package_name
 """
 
 import xmlrpc.client
@@ -20,9 +19,10 @@ def main(name, test):
     else:
         uri = "https://pypi.org/pypi"
 
+    # ref: https://warehouse.pypa.io/api-reference/xml-rpc/
     client = xmlrpc.client.ServerProxy(uri)
-    releases = client.package_releases(name, True)
 
+    releases = client.package_releases(name, True)
     print(json.dumps(releases, indent=2))
 
 

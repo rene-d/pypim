@@ -1,5 +1,11 @@
 #! /usr/bin/env python3
 
+# ref: https://warehouse.pypa.io/api-reference/xml-rpc/
+
+"""
+Retrieve a list events since a given serial
+"""
+
 import sqlite3
 import json
 import os
@@ -78,15 +84,19 @@ def init_logger(kwargs):
 @click.option("--db", show_default=True, help="db", default="pypi.db")
 @click.option("-s", "--last_serial", help="last_serial", default=0)
 @click.option("-j", "--json", is_flag=True, default=False, help="save changelog in JSON")
+@click.option("--test", is_flag=True, default=False, help="test.pypi.org")
 def main(**kwargs):
 
     init_logger(kwargs)
 
-    # https://warehouse.pypa.io/api-reference/xml-rpc/
+    if kwargs["test"]:
+        uri = "https://test.pypi.org/pypi"
+    else:
+        uri = "https://pypi.org/pypi"
+
+    client = xmlrpc.client.ServerProxy(uri)
 
     # server last_serial
-    logger.info(f"calling changelog_last_serial()")
-    client = xmlrpc.client.ServerProxy("https://pypi.org/pypi")
     last_serial = client.changelog_last_serial()
     logger.info(f"server last_serial = {last_serial}")
 
@@ -106,12 +116,12 @@ def main(**kwargs):
             logger.error("impossible de lire la base de données: %s", e)
             exit()
 
+    # changelog since db last serial or argument
     logger.info(f"calling changelog_since_serial({last_serial})")
-    client = xmlrpc.client.ServerProxy("https://pypi.org/pypi")
     changelog = client.changelog_since_serial(last_serial)
 
     if kwargs["json"]:
-        json.dump(changelog, open("changelog.json", "w"), indent=2)
+        json.dumps(changelog, open("changelog.json", "w"), indent=2)
         logger.info(f"received {len(changelog)} changes")
     else:
         lp = max(len(package) for package, _, _, _, _ in changelog if package)

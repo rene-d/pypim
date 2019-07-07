@@ -1,5 +1,7 @@
 #! /usr/bin/env python3
 
+# ref: https://warehouse.pypa.io/api-reference/xml-rpc/
+
 """
 retourne la liste des packages
 cf. https://warehouse.pypa.io/api-reference/xml-rpc/

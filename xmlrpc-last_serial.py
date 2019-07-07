@@ -1,6 +1,9 @@
 #! /usr/bin/env python3
 
-import sys
+"""
+Retrieve the last event’s serial id
+"""
+
 import click
 import xmlrpc.client
 
@@ -14,11 +17,10 @@ def main(test):
     else:
         uri = "https://pypi.org/pypi"
 
-    # https://warehouse.pypa.io/api-reference/xml-rpc/
+    # ref: https://warehouse.pypa.io/api-reference/xml-rpc/
+    client = xmlrpc.client.ServerProxy(uri)
 
     # server last_serial
-    print(f"calling changelog_last_serial()")
-    client = xmlrpc.client.ServerProxy(uri)
     last_serial = client.changelog_last_serial()
     print(f"server last_serial = {last_serial}")
 

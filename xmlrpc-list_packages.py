@@ -1,8 +1,7 @@
 #! /usr/bin/env python3
 
 """
-retourne la liste des packages
-cf. https://warehouse.pypa.io/api-reference/xml-rpc/
+Retrieve a list of the package names
 """
 
 import xmlrpc.client
@@ -21,6 +20,7 @@ def main(serial, json_output, test):
     else:
         uri = "https://pypi.org/pypi"
 
+    # ref: https://warehouse.pypa.io/api-reference/xml-rpc/
     client = xmlrpc.client.ServerProxy(uri)
 
     if serial:
@@ -28,7 +28,7 @@ def main(serial, json_output, test):
     else:
         packages = client.list_packages()
 
-    if json_flag:
+    if json_output:
         print(json.dumps(packages, indent=2))
     else:
         for package in sorted(packages):

@@ -28,7 +28,7 @@ from plugins.blacklist import get_blacklist
 
 
 # create logger for our app
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("pypim")
 
 
 class ColoredFormatter(logging.Formatter):
@@ -524,7 +524,6 @@ order by lp.last_serial
 
                 # parse and store the metadata
                 add_package(db, name, data, use_meta_db)
-                db.commit()
 
             except (
                 sqlite3.IntegrityError,
@@ -532,11 +531,12 @@ order by lp.last_serial
                 json.decoder.JSONDecodeError,
                 Exception,
             ) as e:
-                logger.error(f"error {name} {e!r}")
+                logger.error(f"error {name} : {e!r}")
                 db.execute("update list_packages set ignore=1 where name=?", (name,))
-                db.commit()
 
             processed += 1
+
+        db.commit()
 
         logger.info(f"packages processed: {processed}")
         if len(rows) != processed:
@@ -828,7 +828,9 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
         except KeyboardInterrupt:
             logger.warning("interrupt")
 
-        logger.info(f"index={index} exist={exist} download={download} download_size={download_size}")
+        logger.info(
+            f"index={index} exist={exist} download={download} download_size={download_size}"
+        )
 
         if ctrl_c:
             logger.warning("terminated")
