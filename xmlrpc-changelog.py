@@ -117,27 +117,28 @@ def main(**kwargs):
             exit()
 
     # changelog since db last serial or argument
+    # list of (name, version, timestamp, action, serial)
     logger.info(f"calling changelog_since_serial({last_serial})")
     changelog = client.changelog_since_serial(last_serial)
 
     logger.info(f"received {len(changelog)} events")
 
-    lp = max(len(package) for package, _, _, _, _ in changelog if package)
-    lr = max(len(release) for _, release, _, _, _ in changelog if release)
+    lp = max(len(name) for name, _, _, _, _ in changelog if name)
+    lr = max(len(version) for _, version, _, _, _ in changelog if version)
 
     if kwargs["json"]:
-        json.dumps(changelog, open("changelog.json", "w"), indent=2)
+        json.dump(changelog, open("changelog.json", "w"), indent=2)
 
     if kwargs["text"]:
         with open("changelog.txt", "w") as fp:
-            for package, release, timestamp, event, serial in changelog:
+            for name, version, timestamp, action, serial in changelog:
                 d = datetime.datetime.fromtimestamp(timestamp).isoformat()
-                line = "%*s %*s %s %d %s" % (-lp, package, -lr, release, d, serial, event)
+                line = "%*s %*s %s %d %s" % (-lp, name, -lr, version, d, serial, action)
                 print(line, file=fp)
 
-    for package, release, timestamp, event, serial in changelog:
+    for name, version, timestamp, action, serial in changelog:
         d = datetime.datetime.fromtimestamp(timestamp).isoformat()
-        line = "%*s %*s %s %d %s" % (-lp, package, -lr, release, d, serial, event)
+        line = "%*s %*s %s %d %s" % (-lp, name, -lr, version, d, serial, action)
         logger.debug(line)
 
     updated = set(change[0] for change in changelog)
