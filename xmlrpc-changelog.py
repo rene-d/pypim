@@ -1,7 +1,5 @@
 #! /usr/bin/env python3
 
-# ref: https://warehouse.pypa.io/api-reference/xml-rpc/
-
 """
 Retrieve a list events since a given serial
 """
@@ -94,6 +92,7 @@ def main(**kwargs):
     else:
         uri = "https://pypi.org/pypi"
 
+    # ref: https://warehouse.pypa.io/api-reference/xml-rpc/
     client = xmlrpc.client.ServerProxy(uri)
 
     # server last_serial
