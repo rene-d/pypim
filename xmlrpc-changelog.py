@@ -82,6 +82,7 @@ def init_logger(kwargs):
 @click.option("--db", show_default=True, help="db", default="pypi.db")
 @click.option("-s", "--last_serial", help="last_serial", default=0)
 @click.option("-j", "--json", is_flag=True, default=False, help="save changelog in JSON")
+@click.option("-t", "--text", is_flag=True, default=False, help="save changelog in text")
 @click.option("--test", is_flag=True, default=False, help="test.pypi.org")
 def main(**kwargs):
 
@@ -112,30 +113,37 @@ def main(**kwargs):
             logger.info(f"mirror last_serial = {last_serial}")
             db.close()
         except Exception as e:
-            logger.error("impossible de lire la base de données: %s", e)
+            logger.error("cannot open database: %s", e)
             exit()
 
     # changelog since db last serial or argument
     logger.info(f"calling changelog_since_serial({last_serial})")
     changelog = client.changelog_since_serial(last_serial)
 
+    logger.info(f"received {len(changelog)} events")
+
+    lp = max(len(package) for package, _, _, _, _ in changelog if package)
+    lr = max(len(release) for _, release, _, _, _ in changelog if release)
+
     if kwargs["json"]:
         json.dumps(changelog, open("changelog.json", "w"), indent=2)
-        logger.info(f"received {len(changelog)} changes")
-    else:
-        lp = max(len(package) for package, _, _, _, _ in changelog if package)
-        lr = max(len(release) for _, release, _, _, _ in changelog if release)
+
+    if kwargs["text"]:
         with open("changelog.txt", "w") as fp:
             for package, release, timestamp, event, serial in changelog:
                 d = datetime.datetime.fromtimestamp(timestamp).isoformat()
                 line = "%*s %*s %s %d %s" % (-lp, package, -lr, release, d, serial, event)
                 print(line, file=fp)
-                logger.debug(line)
+
+    for package, release, timestamp, event, serial in changelog:
+        d = datetime.datetime.fromtimestamp(timestamp).isoformat()
+        line = "%*s %*s %s %d %s" % (-lp, package, -lr, release, d, serial, event)
+        logger.debug(line)
 
     updated = set(change[0] for change in changelog)
     max_serial = max(change[4] for change in changelog)
 
-    logger.info(f"received: {len(updated)} updated, {max_serial} max_serial")
+    logger.info(f"updated: {len(updated)}, max_serial: {max_serial} ")
 
     # events = set()
     # for package, release, timestamp, event, serial in changelog:
