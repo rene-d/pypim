@@ -86,7 +86,7 @@ def main(verbose, port, web, db):
         tornado.log.gen_log.setLevel(logging.DEBUG)
 
     path = pathlib.Path(web).expanduser()
-    database = sqlite3.connect(db")
+    database = sqlite3.connect(db)
 
     app = tornado.web.Application(
         [
