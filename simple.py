@@ -10,10 +10,17 @@ import tornado.log
 import sqlite3
 from packaging.utils import canonicalize_name  # lowercase, only hyphen PEP503
 import logging
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import pathlib
 import click
+import time
 from pypim import build_index
+
+
+# cache system for index.html
+# 256 entries max
+# entry valid for 5 min
+cached = OrderedDict()
 
 
 class SimpleHandler(tornado.web.RequestHandler):
@@ -28,12 +35,23 @@ class SimpleHandler(tornado.web.RequestHandler):
 
     def get(self, name):
 
+        name = canonicalize_name(name)
+
+        if name in cached:
+            last, html = cached[name]
+
+            if time.time() - last < 300:
+                cached.move_to_end(name)
+                self.write(html)
+                return
+            else:
+                cached.pop(name)
+
         try:
             cur = self.db.cursor()
 
             r = cur.execute(
-                "select name,last_serial from package where name=?",
-                (canonicalize_name(name),),
+                "select name,last_serial from package where name=?", (name,)
             ).fetchone()
             if r is None:
                 # tornado.log.gen_log.error(f"project {name} not found in index")
@@ -60,13 +78,24 @@ class SimpleHandler(tornado.web.RequestHandler):
 
             self.write(html)
 
+            while len(cached) > 256:
+                cached.popitem()
+            cached[name] = (time.time(), html)
+
         finally:
             cur.close()
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
-@click.option("-p", "--port", help="HTTP listening port", default=8000, type=int)
+@click.option(
+    "-p",
+    "--port",
+    help="HTTP listening port",
+    default=8000,
+    type=int,
+    show_default=True,
+)
 @click.option(
     "--web",
     default="~/data/pypi",
@@ -86,7 +115,7 @@ def main(verbose, port, web, db):
         tornado.log.gen_log.setLevel(logging.DEBUG)
 
     path = pathlib.Path(web).expanduser()
-    database = sqlite3.connect(db)
+    database = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 
     app = tornado.web.Application(
         [

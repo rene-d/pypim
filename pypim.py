@@ -694,7 +694,12 @@ def get_cached_list(filename, getter):
 
 
 def download_packages(
-    db, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False, no_index=False
+    db,
+    web_root,
+    dry_run=False,
+    whitelist_cond=None,
+    only_whitelist=False,
+    no_index=False,
 ):
 
     # the root of the mirror
