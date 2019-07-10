@@ -37,11 +37,11 @@ class SimpleHandler(tornado.web.RequestHandler):
 
         name = canonicalize_name(name)
 
-        if name in cached:
-            last, html = cached[name]
-
+        last, html = cached.get(name, (0, None))
+        if html:
             if time.time() - last < 300:
                 cached.move_to_end(name)
+                tornado.log.gen_log.info(f"serving {name} (cached)")
                 self.write(html)
                 return
             else:
