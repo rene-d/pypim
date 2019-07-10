@@ -694,7 +694,7 @@ def get_cached_list(filename, getter):
 
 
 def download_packages(
-    db, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False
+    db, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False, no_index=False
 ):
 
     # the root of the mirror
@@ -748,7 +748,7 @@ def download_packages(
     exist = 0
     download = 0
     download_size = 0
-    index = 0
+    processed = 0
 
     # add the "done" list to the blacklist (faster)
     z = pathlib.Path("done")
@@ -832,18 +832,19 @@ def download_packages(
                                 with file.open("wb") as fp:
                                     fp.write(session.get(f["url"]).content)
 
-                # build the index.html file
-                simple_index = build_index(
-                    name, last_serial, unfiltered_releases, web_root
-                )
-                index += 1
+                if not no_index:
+                    # build the index.html file
+                    simple_index = build_index(
+                        name, last_serial, unfiltered_releases, web_root
+                    )
 
-                if not dry_run:
-                    p = web_root / "simple" / canonicalize_name(name) / "index.html"
-                    p.parent.mkdir(exist_ok=True, parents=True)
-                    with p.open("w") as fp:
-                        fp.write(simple_index)
+                    if not dry_run:
+                        p = web_root / "simple" / canonicalize_name(name) / "index.html"
+                        p.parent.mkdir(exist_ok=True, parents=True)
+                        with p.open("w") as fp:
+                            fp.write(simple_index)
 
+                processed += 1
                 with open("done", "a") as fp:
                     print(name, file=fp)
 
@@ -855,7 +856,7 @@ def download_packages(
             logger.warning("interrupt")
 
         logger.info(
-            f"index={index} exist={exist} download={download} download_size={download_size}"
+            f"processed={processed} exist={exist} download={download} download_size={download_size}"
         )
 
         if ctrl_c:
@@ -901,6 +902,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 
     web_root = kwargs["web"]
     dry_run = kwargs["dry_run"]
+    no_index = kwargs["no_index"]
 
     white_list = kwargs["add"]
     for fn in kwargs["add_list"]:
@@ -923,7 +925,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 
         if packages or len(white_list) != 0:
             only_wl = not packages
-            download_packages(db, web_root, dry_run, white_list, only_wl)
+            download_packages(db, web_root, dry_run, white_list, only_wl, no_index)
 
     db.close()
 
@@ -976,6 +978,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     "--raw", is_flag=True, help="store raw JSON metadata in a separated database"
 )
 @click.option("--test", is_flag=True, help="use test.pypi.org")
+@click.option("--no-index", is_flag=True, help="do not create /simple/xxx/index.html")
 def main(**kwargs):
     """
     Python Package Intelligent Mirroring
