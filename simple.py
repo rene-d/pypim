@@ -67,16 +67,30 @@ class SimpleHandler(tornado.web.RequestHandler):
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
 @click.option("-p", "--port", help="HTTP listening port", default=8000, type=int)
-def main(verbose, port):
+@click.option(
+    "--web",
+    default="~/data/pypi",
+    help="mirror directory",
+    type=click.Path(dir_okay=True),
+    show_default=True,
+)
+@click.option(
+    "--db",
+    default="pypi.db",
+    help="packages database",
+    type=click.Path(file_okay=True),
+    show_default=True,
+)
+def main(verbose, port, web, db):
     if verbose:
         tornado.log.gen_log.setLevel(logging.DEBUG)
 
-    path = pathlib.Path("~/data/pypi").expanduser()
-    db = sqlite3.connect("pypi.db")
+    path = pathlib.Path(web).expanduser()
+    database = sqlite3.connect(db")
 
     app = tornado.web.Application(
         [
-            (r"/simple/([^/]+)/?", SimpleHandler, {"database": db, "path": path}),
+            (r"/simple/([^/]+)/?", SimpleHandler, {"database": database, "path": path}),
             (
                 r"/(packages/.*)",
                 tornado.web.StaticFileHandler,
