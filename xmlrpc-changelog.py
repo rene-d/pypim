@@ -34,7 +34,9 @@ class ColoredFormatter(logging.Formatter):
         saved_levelname = record.levelname
         levelno = record.levelno
         if self.use_color and levelno in ColoredFormatter.COLORS:
-            record.levelname = ColoredFormatter.COLORS[levelno] + record.levelname + "\033[0m"
+            record.levelname = (
+                ColoredFormatter.COLORS[levelno] + record.levelname + "\033[0m"
+            )
         line = logging.Formatter.format(self, record)
         record.levelname = saved_levelname
         return line
@@ -59,7 +61,9 @@ def init_logger(kwargs):
     # create console handler and set level
     ch = logging.StreamHandler()
     ch.setLevel(level)
-    formatter = ColoredFormatter("%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S")
+    formatter = ColoredFormatter(
+        "%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S"
+    )
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
@@ -67,7 +71,9 @@ def init_logger(kwargs):
         # create file handler and set level to debug
         ch = logging.FileHandler(filename)
         ch.setLevel(logging.DEBUG)
-        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
         ch.setFormatter(formatter)
         logger.addHandler(ch)
     else:
@@ -77,12 +83,18 @@ def init_logger(kwargs):
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
-@click.option("-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose")
+@click.option(
+    "-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose"
+)
 @click.option("-lf", "--logfile", help="logfile")
 @click.option("--db", show_default=True, help="db", default="pypi.db")
 @click.option("-s", "--last_serial", help="last_serial", default=0)
-@click.option("-j", "--json", is_flag=True, default=False, help="save changelog in JSON")
-@click.option("-t", "--text", is_flag=True, default=False, help="save changelog in text")
+@click.option(
+    "-j", "--json", is_flag=True, default=False, help="save changelog in JSON"
+)
+@click.option(
+    "-t", "--text", is_flag=True, default=False, help="save changelog in text"
+)
 @click.option("--test", is_flag=True, default=False, help="test.pypi.org")
 def main(**kwargs):
 
@@ -109,7 +121,9 @@ def main(**kwargs):
             db.row_factory = sqlite3.Row
 
             # the db' last_serial
-            last_serial = db.execute("select last_serial from pypi_last_serial").fetchone()[0]
+            last_serial = db.execute(
+                "select last_serial from pypi_last_serial"
+            ).fetchone()[0]
             logger.info(f"mirror last_serial = {last_serial}")
             db.close()
         except Exception as e:

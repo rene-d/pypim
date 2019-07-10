@@ -84,7 +84,6 @@ The metadata is stored in both raw and decoded formats, in two [SQLite3](https:/
 ./pypim.py -lf mirror.log -ump -a pyxb==1.2.3 -r <(pip3 freeze) --web /data/mirrors/pypi
 ```
 
-
 ## Some reference links
 
 * [PEP 426 -- Metadata for Python Software Packages 2.0](https://www.python.org/dev/peps/pep-0426/)

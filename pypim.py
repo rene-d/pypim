@@ -49,7 +49,9 @@ class ColoredFormatter(logging.Formatter):
         saved_levelname = record.levelname
         levelno = record.levelno
         if self.use_color and levelno in ColoredFormatter.COLORS:
-            record.levelname = ColoredFormatter.COLORS[levelno] + record.levelname + "\033[0m"
+            record.levelname = (
+                ColoredFormatter.COLORS[levelno] + record.levelname + "\033[0m"
+            )
         line = logging.Formatter.format(self, record)
         record.levelname = saved_levelname
         return line
@@ -74,7 +76,9 @@ def init_logger(kwargs):
     # create console handler and set level
     ch = logging.StreamHandler()
     ch.setLevel(level)
-    formatter = ColoredFormatter("%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S")
+    formatter = ColoredFormatter(
+        "%(asctime)s:%(levelname)s:%(message)s", datefmt="%H:%M:%S"
+    )
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
@@ -82,7 +86,9 @@ def init_logger(kwargs):
         # create file handler and set level to debug
         ch = logging.FileHandler(filename)
         ch.setLevel(logging.DEBUG)
-        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
         ch.setFormatter(formatter)
         logger.addHandler(ch)
     else:
@@ -428,7 +434,8 @@ def update_list(client, db, clear_ignore=False):
             # fetch the ignore flags
             # for packages not modified since the last update
             for row in db.execute(
-                "select name,ignore from list_packages where last_serial<=?", (db_serial,)
+                "select name,ignore from list_packages where last_serial<=?",
+                (db_serial,),
             ):
                 ignore_flags[row[0]] = row[1]
 
@@ -437,11 +444,16 @@ def update_list(client, db, clear_ignore=False):
         db.execute("delete from list_packages")
         db.executemany(
             "insert into list_packages (name,last_serial,ignore) values (?,?,?)",
-            [(name, last_serial, ignore_flags[name]) for name, last_serial in packages.items()],
+            [
+                (name, last_serial, ignore_flags[name])
+                for name, last_serial in packages.items()
+            ],
         )
 
         # print the list of updated packages
-        for row in db.execute("select name from list_packages where last_serial>?", (db_serial,)):
+        for row in db.execute(
+            "select name from list_packages where last_serial>?", (db_serial,)
+        ):
             name = row[0]
             logger.debug(f"updated: {name}")
 
@@ -550,7 +562,9 @@ order by lp.last_serial
 
     # sanitize metadata database...
     if use_meta_db:
-        db.execute("delete from meta_db.package where name not in (select name from package)")
+        db.execute(
+            "delete from meta_db.package where name not in (select name from package)"
+        )
         db.commit()
         db.execute("detach database meta_db")
 
@@ -656,7 +670,9 @@ def compute_requirements(db, blacklist=set()):
                     conditions[dist].add(cond)
 
         if added:
-            logger.info(f"iteration {iteration}: packages added to the blacklist: {added}")
+            logger.info(
+                f"iteration {iteration}: packages added to the blacklist: {added}"
+            )
         else:
             break
 
@@ -677,7 +693,9 @@ def get_cached_list(filename, getter):
     return resource
 
 
-def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False):
+def download_packages(
+    db, web_root, dry_run=False, whitelist_cond=None, only_whitelist=False
+):
 
     # the root of the mirror
     web_root = pathlib.Path(web_root).expanduser()
@@ -689,7 +707,9 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
     else:
         # the blacklist and calculated requirement conditions
         blacklist, _ = get_cached_list("blacklist", lambda: get_blacklist(db))
-        conditions = get_cached_list("conditions", lambda: compute_requirements(db, blacklist))
+        conditions = get_cached_list(
+            "conditions", lambda: compute_requirements(db, blacklist)
+        )
 
     # the whitelist
     if (isinstance(whitelist_cond, tuple) or isinstance(whitelist_cond, list)) and len(
@@ -720,7 +740,9 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
     filter_releases.initialize_plugin()
 
     filter_platform = filename_name.ExcludePlatformFilter()
-    filter_platform.configuration = {"blacklist": {"platforms": "windows macos freebsd"}}
+    filter_platform.configuration = {
+        "blacklist": {"platforms": "windows macos freebsd"}
+    }
     filter_platform.initialize_plugin()
 
     exist = 0
@@ -798,7 +820,9 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                             download += 1
                             download_size += int(f["size"])
 
-                            logger.info(f"download {name}  {f['filename']}  {f['size']} bytes")
+                            logger.info(
+                                f"download {name}  {f['filename']}  {f['size']} bytes"
+                            )
                             logger.debug(f"file: {file}")
 
                             if not dry_run:
@@ -809,7 +833,9 @@ def download_packages(db, web_root, dry_run=False, whitelist_cond=None, only_whi
                                     fp.write(session.get(f["url"]).content)
 
                 # build the index.html file
-                simple_index = build_index(name, last_serial, unfiltered_releases, web_root)
+                simple_index = build_index(
+                    name, last_serial, unfiltered_releases, web_root
+                )
                 index += 1
 
                 if not dry_run:
@@ -904,13 +930,23 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.option("-v", "--verbose", is_flag=True, default=False, help="verbose mode")
-@click.option("-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose")
+@click.option(
+    "-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose"
+)
 @click.option("-lf", "--logfile", help="logfile")
 @click.option(
-    "-n", "--dry-run", is_flag=True, default=False, help="dry run (do not download package)"
+    "-n",
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="dry run (do not download package)",
 )
-@click.option("-u", "--update", is_flag=True, default=False, help="update list of packages")
-@click.option("-m", "--metadata", is_flag=True, default=False, help="download JSON metadata")
+@click.option(
+    "-u", "--update", is_flag=True, default=False, help="update list of packages"
+)
+@click.option(
+    "-m", "--metadata", is_flag=True, default=False, help="download JSON metadata"
+)
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
 @click.option("-a", "--add", multiple=True, help="package name (trigger mirroring)")
 @click.option(
@@ -936,7 +972,9 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     show_default=True,
 )
 @click.option("--remove-orphans", is_flag=True, help="find and remove orphan files")
-@click.option("--raw", is_flag=True, help="store raw JSON metadata in a separated database")
+@click.option(
+    "--raw", is_flag=True, help="store raw JSON metadata in a separated database"
+)
 @click.option("--test", is_flag=True, help="use test.pypi.org")
 def main(**kwargs):
     """
