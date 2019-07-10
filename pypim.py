@@ -568,11 +568,6 @@ order by lp.last_serial
         db.commit()
         db.execute("detach database meta_db")
 
-    # remove the file where we save the download progress
-    z = pathlib.Path("done")
-    if z.exists():
-        z.unlink()
-
 
 def build_index(name, last_serial, releases, web_root):
     """
@@ -702,9 +697,6 @@ def download_packages(
     no_index=False,
 ):
 
-    # the root of the mirror
-    web_root = pathlib.Path(web_root).expanduser()
-
     if only_whitelist:
         # download only the listed packages
         blacklist = set()
@@ -756,7 +748,7 @@ def download_packages(
     processed = 0
 
     # add the "done" list to the blacklist (faster)
-    z = pathlib.Path("done")
+    z = web_root / "done"
     if z.exists():
         for i in z.open():
             blacklist.add(i.strip())
@@ -850,7 +842,7 @@ def download_packages(
                             fp.write(simple_index)
 
                 processed += 1
-                with open("done", "a") as fp:
+                with open(web_root / "done", "a") as fp:
                     print(name, file=fp)
 
         except Exception as e:
@@ -874,7 +866,7 @@ def remove_orphans(db, web_root):
     find and delete files that are no longer in file table
     """
 
-    p = pathlib.Path(web_root).expanduser()
+    p = web_root
     lp = len(p.as_posix())
 
     logger.info(f"looking for orphan files in {p}")
@@ -905,7 +897,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 
     create_db(db, use_meta_db)
 
-    web_root = kwargs["web"]
+    web_root = pathlib.Path(kwargs["web"]).expanduser()
     dry_run = kwargs["dry_run"]
     no_index = kwargs["no_index"]
 
@@ -927,6 +919,12 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 
         if metadata:
             download_metadata(db, use_meta_db, pypi_uri)
+
+            # remove the file where we save the download progress
+            z = web_root / "done"
+            if z.exists():
+                z.unlink()
+
 
         if packages or len(white_list) != 0:
             only_wl = not packages
