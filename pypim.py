@@ -925,7 +925,6 @@ def run(update=False, metadata=False, packages=False, **kwargs):
             if z.exists():
                 z.unlink()
 
-
         if packages or len(white_list) != 0:
             only_wl = not packages
             download_packages(db, web_root, dry_run, white_list, only_wl, no_index)
