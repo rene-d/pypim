@@ -788,7 +788,7 @@ def download_packages(
                 #   releases = data['releases']
                 info = {"name": name, "version": version}
                 releases = defaultdict(list)
-                sql = "select release,filename,url,size,requires_python,sha256_digest from file where name=?"
+                sql = "select release,filename,url,size,requires_python,sha256_digest,python_version from file where name=?"
                 for row in db.execute(sql, (name,)):
                     releases[row[0]].append(
                         {
@@ -797,6 +797,7 @@ def download_packages(
                             "size": row[3],
                             "requires_python": row[4],
                             "digests": {"sha256": row[5]},
+                            "python_version": row[6],
                         }
                     )
 
