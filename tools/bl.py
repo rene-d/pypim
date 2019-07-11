@@ -9,6 +9,7 @@ import click
 import sqlite3
 import pathlib
 from urllib.parse import urlparse
+import humanfriendly as tf
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -56,7 +57,7 @@ def main(verbose, web, db):
                 print(f"removed: {path} ({size} bytes)")
 
     print(f"files removed: {count}")
-    print(f"space freed: {total} bytes")
+    print(f"space freed: {tf.format_size(total)}")
 
 
 if __name__ == "__main__":
