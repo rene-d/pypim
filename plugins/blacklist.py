@@ -7,11 +7,26 @@ logger = logging.getLogger("pypim")
 
 # packages too big or updated too frequently
 TOOFAT = [
-    "cupy",
-    "cupy-%",  # CuPy : NumPy-like API accelerated with CUDA
+    "cupy%",  # CuPy : NumPy-like API accelerated with CUDA
     "mxnet",
     "mxnet-%",  # Apache MXNet is a deep learning framework
     "tf-nightly%",  # nightly TensorFlow
+    "%tensorflow%",
+    "nnabla%",
+    "cntk%",
+    "pyspark",
+    "databricks%",
+    "gym-retro",
+    "syntactic-tagger",
+    "CodeIntel",
+    "deepspeech%",
+    "paddlepaddle%",
+    "pyagrum-nightly",
+    "sickrage",  # Automatic Video Library Manager for TV Shows
+    "pkuseg",  # package for Chinese word segmentation
+    "tensorboard",  # TensorBoard lets you watch Tensors Flow
+    "tb-nightly",  # TensorBoard lets you watch Tensors Flow
+    "catboost-dev",  #
 ]
 
 # threats detected by Kaspersky
@@ -49,22 +64,52 @@ THREATS = [
 ]
 
 SCAM = [
+    #
     # useless when offline
+    #
     "aws%",
     "azure%",
     "cmsplugin%",
     "github%",
     "google-cloud%",
     "mastercard%",
-    # bullshit (among tons not listed...)
+    "spotify%",
+    "youtube%",
+    "tendenci%",
+    "FlexGet",  # automate downloading or processing content
+    "nombot",  # cryptocurrency trading bot
+    "ccxt",  # cryptocurrency trading library
+    "ccxtpro",
+    "c2cgeoportal-geoportal",
+    "onegov.org",
+    "botocore",
+    "molo.core",
+    #
+    # ...
+    #
+    "docassemble.demo",
+    "kolibri",
+    "home-assistant-frontend",
+    "rupo",  # russian poetry analysis
+    "mssql%",
+    #
+    # bullshit (among tons...)
+    #
     "0",
-    "0-._.-._.-._.-._.-._.-._.-0" "0.0.1",
+    "0-._.-._.-._.-._.-._.-._.-0",
+    "0.0.1",
     "0-core-client",
     "aliyun%",
     "nester%",
     "raptus%",
     "Bravo",
+    "apriltag%",  # robot stuff + scam
+    "codeforlife-portal",   # no link, no description
+    "aimmo",  # idem
+    "rapid-router",  # idem
+    #
     # requirements badly written
+    #
     "pcu",
     "bareasgi-cors",
     "bareasgi-graphql-next",
