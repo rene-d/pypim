@@ -25,6 +25,7 @@ from datetime import timedelta
 from urllib.parse import urlparse
 from plugins import filename_name, latest_name
 from plugins.blacklist import get_blacklist
+import shutil
 
 
 # create logger for our app
@@ -809,7 +810,8 @@ def download_packages(
                 # download selected files in selected releases
                 for r in releases.values():
                     for f in r:
-                        path = urlparse(f["url"]).path[1:]
+                        url = f["url"]
+                        path = urlparse(url).path[1:]
 
                         file = web_root / path
                         if file.exists() and file.stat().st_size == int(f["size"]):
@@ -827,8 +829,10 @@ def download_packages(
                                 if file.parent.is_file():
                                     file.parent.unlink()
                                 file.parent.mkdir(exist_ok=True, parents=True)
-                                with file.open("wb") as fp:
-                                    fp.write(session.get(f["url"]).content)
+
+                                with session.get(url, stream=True) as r:
+                                    with file.open("wb") as f:
+                                        shutil.copyfileobj(r.raw, f)
 
                 if not no_index:
                     # build the index.html file
