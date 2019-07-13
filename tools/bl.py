@@ -29,6 +29,9 @@ import humanfriendly as hf
     show_default=True,
 )
 def main(verbose, web, db):
+    """
+    remove blacklisted projects from the mirror
+    """
 
     bl = pickle.load(open("blacklist.cache", "rb"))[0]
     conn = sqlite3.connect(db)

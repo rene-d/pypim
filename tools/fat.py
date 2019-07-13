@@ -13,22 +13,37 @@ import pickle
 from plugins.blacklist import get_blacklist
 
 
-def query(db, sql, args=()):
-    rows = db.execute(sql, args).fetchall()
-    w = [0] * 10
-    for row in rows:
-        for i, col in enumerate(row):
-            w[i] = max(w[i], len(str(col)))
+def query(db, sql, args=(), sep=" "):
+    req = db.execute(sql, args)
+
+    widths = [len(desc[0]) for desc in req.description]
+
+    rows = req.fetchall()
 
     for row in rows:
-        r = [""] * 10
         for i, col in enumerate(row):
-            r[i] = "%*s" % (- w[i] - 1, str(col))
+            widths[i] = max(widths[i], len(str(col)))
+
+    fmt = sep.join("{:" + str(i) + "}" for i in widths)
+    print(fmt.format(*[desc[0] for desc in req.description]))
+    print(fmt.format(*["-" * w for w in widths]).replace("|", "+"))
+
+    for row in rows:
         if row[0] == 1:
             pre = "\033[31m"
         else:
             pre = "\033[0;32;m"
-        print(pre + "".join(r) + "\033[0m")
+        print(pre + fmt.format(*row) + "\033[0m")
+
+
+def pretty(size):
+    if size is None:
+        return "NULL"
+    try:
+        return humanfriendly.format_size(size)
+    except Exception as e:
+        print(size, type(size), e)
+        return str(size)
 
 
 def get_cached_list(filename, getter):
@@ -95,19 +110,33 @@ def main(overall, update, web, db_name, limit):
 
     db.close()
 
-    db_file.create_function("hf", 1, humanfriendly.format_size)
+    db_file.create_function("hf", 1, pretty)
     db_file.create_function("url", 1, "https://pypi.org/project/{}/".format)
+    db_file.create_function("url2", 2, "https://pypi.org/project/{}/{}".format)
     db_file.create_function("bl", 1, lambda name: name in blacklist)
+
+    db_file.executescript("""\
+drop view fat;
+create view if not exists fat as
+    select name, sum(size) as size, count(distinct version) as versions, count(*) files
+    from file
+    group by name
+    having count(distinct version) >= 256 or sum(size) >= 1048576;
+""")
 
     print("Total size")
     query(db_file, "select hf(sum(size)) from file")
 
-    print("Blacklisted size")
-    query(db_file, "select hf(sum(size)) from file where bl(name)=1")
+    # print("Blacklisted size")
+    # query(db_file, "select hf(sum(size)) from file where bl(name)=1")
 
     print(f"First {limit} fat projects")
-    query(db_file, "select bl(name),name,hf(sum(size)) as total_size,count(*),url(name) "
-                   "from file group by name order by sum(size) desc,name asc limit ?", (limit,))
+    query(db_file, "select bl(name) as bl,name,hf(size) as size,versions,files,url(name) as url "
+                   "from fat order by fat.size desc limit ?", (limit,))
+
+    # for name, size in db_file.execute("select name,size from fat  order by size desc limit ?", (limit,)):
+    #     query(db_file, "select name,version,hf(sum(size)),count(*),url2(name,version) from file "
+    #                    "where name=? group by name,version order by sum(size) ", (name,))
 
     db_file.close()
 

@@ -12,7 +12,8 @@ TOOFAT = [
     "mxnet-%",  # Apache MXNet is a deep learning framework
     "tf-nightly%",  # nightly TensorFlow
     "%tensorflow%",
-    "nnabla%",
+    "nnabla%"
+    "torch",
     "cntk%",
     "pyspark",
     "databricks%",
@@ -87,11 +88,21 @@ SCAM = [
     #
     # ...
     #
-    "docassemble.demo",
+    "docassemble%",
     "kolibri",
     "home-assistant-frontend",
     "rupo",  # russian poetry analysis
     "mssql%",
+    "OpenFisca%",
+    "Panda3D",
+    "jumper",
+    "sc2maptool",
+    "genderperformr",
+    "%geolite2%",
+    "%mecab%",
+    "py-seleniumdrivers-chromedrivers",
+    "chellow",
+    "chicksexer",
     #
     # bullshit (among tons...)
     #
