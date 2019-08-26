@@ -26,7 +26,7 @@ def parse_conditions(conditions):
                         mandatories.add(test[2:])
                         break
                     except InvalidVersion:
-                        # version mal ficelée
+                        # version mal ficelÃ©e
                         pass
 
             # try:
@@ -68,13 +68,13 @@ class LatestReleaseFilter:
         if self.keep > 0:
             logger.info(f"Initialized latest releases plugin with keep={self.keep}")
 
-    def filter(self, info, releases, conditions=None):
+    def filter(self, info, releases, conditions, removed_desc):
         """
         Keep the latest releases
         """
 
         if self.keep == 0:
-            return
+            return removed_desc
 
         mandatories = parse_conditions(conditions)
 
@@ -105,6 +105,7 @@ class LatestReleaseFilter:
         latest = set(latest)
         for version in list(releases.keys()):
             if version not in latest:
+                removed_desc.extend(releases[version])
                 del releases[version]
 
         logger.debug(f"{self.name}: {versions} -> {latest} removed: {before - after}")
