@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from plugins import filename_name, latest_name
 from plugins.blacklist import get_blacklist
 import shutil
+import humanfriendly as hf
 
 
 # create logger for our app
@@ -349,7 +350,7 @@ def add_package(db, orig_name, data, use_meta_db):
     del info["project_urls"]  # unused
     del info["requires_dist"]
 
-    # ajoute le last_serial (plutôt que dans une table séparée)
+    # ajoute le last_serial (plutÃ´t que dans une table sÃ©parÃ©e)
     last_serial = metadata["last_serial"]
     info["last_serial"] = last_serial
 
@@ -633,13 +634,13 @@ def compute_requirements(db, blacklist=set()):
         name_cond_pattern = re.compile(r"^(.+?)(?:\s\((.+)\))?$")
         for name, dist in db.execute("select name, requires_dist from requires_dist"):
 
-            # ne pas considérer des dépendances de paquets qu'on ne veut pas
+            # ne pas considÃ©rer des dÃ©pendances de paquets qu'on ne veut pas
             if name in blacklist:
                 continue
 
             m = dist.split(";", maxsplit=2)
             if len(m) > 1:
-                # ignore les requirements qui déclare une extra feature dependency
+                # ignore les requirements qui dÃ©clare une extra feature dependency
                 # https://setuptools.readthedocs.io/en/latest/setuptools.html#declaring-extras-optional-features-with-their-own-dependencies
                 extra = m[1].replace(" ", "")
                 if extra.find("extra==") != -1:
@@ -655,7 +656,7 @@ def compute_requirements(db, blacklist=set()):
                 continue
 
             if dist in blacklist:
-                # la dépendance de name est blacklistée, on blackliste name aussi
+                # la dÃ©pendance de name est blacklistÃ©e, on blackliste name aussi
                 logger.debug(f"{name} blacklisted because of {dist}")
                 blacklist.add(name)
                 added += 1
@@ -696,6 +697,8 @@ def download_packages(
     whitelist_cond=None,
     only_whitelist=False,
     no_index=False,
+    keep_releases=3,
+    remove_filtered_releases=False
 ):
 
     if only_whitelist:
@@ -734,7 +737,7 @@ def download_packages(
 
     # initialize plugins borrowed from bandersnatch
     filter_releases = latest_name.LatestReleaseFilter()
-    filter_releases.configuration = {"latest_release": {"keep": 3}}
+    filter_releases.configuration = {"latest_release": {"keep": keep_releases}}
     filter_releases.initialize_plugin()
 
     filter_platform = filename_name.ExcludePlatformFilter()
@@ -747,6 +750,9 @@ def download_packages(
     download = 0
     download_size = 0
     processed = 0
+
+    removed_files = 0
+    removed_size = 0
 
     # add the "done" list to the blacklist (faster)
     z = web_root / "done"
@@ -803,9 +809,24 @@ def download_packages(
                     )
 
                 unfiltered_releases = releases.copy()
+                removed_desc = []
 
-                filter_releases.filter(info, releases, conditions.get(name, None))
-                filter_platform.filter(info, releases)
+                filter_releases.filter(info, releases, conditions.get(name, None), removed_desc)
+                filter_platform.filter(info, releases, removed_desc)
+
+                # clean unwanted releases (too old, by platform)
+                if remove_filtered_releases:
+                    for desc in removed_desc:
+                        filename = web_root / urlparse(desc["url"]).path[1:]
+
+                        if filename.exists():
+                            removed_files += 1
+                            removed_size += filename.stat().st_size
+                            if not dry_run:
+                                filename.unlink()
+                            logger.debug(f"unlink filtered {filename}")
+
+                    continue
 
                 # download selected files in selected releases
                 for r in releases.values():
@@ -813,8 +834,8 @@ def download_packages(
                         url = f["url"]
                         path = urlparse(url).path[1:]
 
-                        file = web_root / path
-                        if file.exists() and file.stat().st_size == int(f["size"]):
+                        filename = web_root / path
+                        if filename.exists() and filename.stat().st_size == int(f["size"]):
                             exist += 1
                         else:
                             download += 1
@@ -823,15 +844,15 @@ def download_packages(
                             logger.info(
                                 f"download {name}  {f['filename']}  {f['size']} bytes"
                             )
-                            logger.debug(f"file: {file}")
+                            logger.debug(f"file: {filename}")
 
                             if not dry_run:
-                                if file.parent.is_file():
-                                    file.parent.unlink()
-                                file.parent.mkdir(exist_ok=True, parents=True)
+                                if filename.parent.is_file():
+                                    filename.parent.unlink()
+                                filename.parent.mkdir(exist_ok=True, parents=True)
 
                                 with session.get(url, stream=True) as r:
-                                    with file.open("wb") as f:
+                                    with filename.open("wb") as f:
                                         shutil.copyfileobj(r.raw, f)
 
                 if not no_index:
@@ -858,17 +879,21 @@ def download_packages(
             logger.warning("interrupt")
 
         logger.info(
-            f"processed={processed} exist={exist} download={download} download_size={download_size}"
+            f"processed={processed} exist={exist} download={download} download_size= {hf.format_size(download_size)} ({download_size} bytes)"
         )
+
+        if remove_filtered_releases:
+            logger.info(f"files removed: {removed_files}")
+            logger.info(f"space recovered: {hf.format_size(removed_size)} ({removed_size} bytes)")
 
         if ctrl_c:
             logger.warning("terminated")
             exit(0)
 
 
-def remove_orphans(db, web_root):
+def remove_orphans(db, web_root, dry_run):
     """
-    find and delete files that are no longer in file table
+    find and delete files that are no longer listed in any release of any project
     """
 
     p = web_root
@@ -876,21 +901,29 @@ def remove_orphans(db, web_root):
 
     logger.info(f"looking for orphan files in {p}")
 
-    removed = 0
+    removed_files = 0
+    removed_size = 0
     p /= "packages"
     for f in p.glob("**/*"):
         if f.is_file():
             url = "https://files.pythonhosted.org" + f.as_posix()[lp:]
+            # nota: indexing by url is important here...
             n = fetch_value(db, "select count(*) from file where url=?", (url,))
             if n == 0:
-                f.unlink()
+                removed_files += 1
+                removed_size += f.stat().st_size
+                if not dry_run:
+                    f.unlink()
                 logger.debug(f"unlink orphan {f}")
-                removed += 1
 
-    logger.info(f"files removed: {removed}")
+    logger.info(f"files removed: {removed_files}")
+    logger.info(f"space recovered: {hf.format_size(removed_size)} ({removed_size} bytes)")
 
 
 def run(update=False, metadata=False, packages=False, **kwargs):
+    """
+    effective main() function
+    """
 
     use_meta_db = kwargs["raw"]
     pypi_uri = "https://pypi.org/pypi"
@@ -905,6 +938,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     web_root = pathlib.Path(kwargs["web"]).expanduser()
     dry_run = kwargs["dry_run"]
     no_index = kwargs["no_index"]
+    keep_releases = kwargs["keep_releases"]
 
     white_list = kwargs["add"]
     for fn in kwargs["add_list"]:
@@ -914,7 +948,11 @@ def run(update=False, metadata=False, packages=False, **kwargs):
                 white_list.append(r.strip())
 
     if kwargs["remove_orphans"]:
-        remove_orphans(db, web_root)
+        remove_orphans(db, web_root, dry_run)
+
+    elif kwargs["remove_oldest"]:
+        only_wl = len(white_list) != 0
+        download_packages(db, web_root, dry_run, white_list, only_wl, no_index, keep_releases, True)
 
     elif not update and not metadata and not packages and len(white_list) == 0:
         logger.warning("nothing to do, did you mess up -u, -m, -p or -a/-A ?")
@@ -932,7 +970,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
 
         if packages or len(white_list) != 0:
             only_wl = not packages
-            download_packages(db, web_root, dry_run, white_list, only_wl, no_index)
+            download_packages(db, web_root, dry_run, white_list, only_wl, no_index, keep_releases, False)
 
     db.close()
 
@@ -981,11 +1019,19 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     show_default=True,
 )
 @click.option("--remove-orphans", is_flag=True, help="find and remove orphan files")
+@click.option("--remove-oldest", is_flag=True, help="find and remove oldest files")
 @click.option(
     "--raw", is_flag=True, help="store raw JSON metadata in a separated database"
 )
 @click.option("--test", is_flag=True, help="use test.pypi.org")
 @click.option("--no-index", is_flag=True, help="do not create /simple/xxx/index.html")
+@click.option(
+    "-k", "--keep-releases",
+    default=3,
+    help="releases to keep",
+    type=int,
+    show_default=True,
+)
 def main(**kwargs):
     """
     Python Package Intelligent Mirroring
