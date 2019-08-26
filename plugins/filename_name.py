@@ -89,26 +89,25 @@ class ExcludePlatformFilter:
 
         logger.info(f"Initialized {self.name} plugin with {self._patterns!r}")
 
-    def filter(self, info, releases):
+    def filter(self, info, releases, removed_desc=[]):
         """
         Remove files from `releases` that match any pattern.
         """
         # Make a copy of releases keys
         # as we may delete packages during iteration
-        removed = 0
         versions = list(releases.keys())
         for version in versions:
             new_files = []
             for file_desc in releases[version]:
                 if self._check_match(file_desc):
-                    removed += 1
+                    removed_desc.append(file_desc)
                 else:
                     new_files.append(file_desc)
             if len(new_files) == 0:
                 del releases[version]
             else:
                 releases[version] = new_files
-        logger.debug(f"{self.name}: removed: {removed}")
+        logger.debug(f"{self.name}: removed: {len(removed_desc)}")
 
     def _check_match(self, file_desc) -> bool:
         """
