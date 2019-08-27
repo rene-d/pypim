@@ -12,8 +12,7 @@ TOOFAT = [
     "mxnet-%",  # Apache MXNet is a deep learning framework
     "tf-nightly%",  # nightly TensorFlow
     "%tensorflow%",
-    "nnabla%"
-    "torch",
+    "nnabla%" "torch",
     "cntk%",
     "pyspark",
     "databricks%",
@@ -115,7 +114,7 @@ SCAM = [
     "raptus%",
     "Bravo",
     "apriltag%",  # robot stuff + scam
-    "codeforlife-portal",   # no link, no description
+    "codeforlife-portal",  # no link, no description
     "aimmo",  # idem
     "rapid-router",  # idem
     #

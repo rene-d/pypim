@@ -67,18 +67,14 @@ def get_cached_list(filename, getter):
     show_default=True,
 )
 @click.option(
-    "--db", "db_name",
+    "--db",
+    "db_name",
     default="pypi.db",
     help="packages database",
     type=click.Path(file_okay=True),
     show_default=True,
 )
-@click.option(
-    "-l", "--limit",
-    default=200,
-    help="limit",
-    show_default=True,
-)
+@click.option("-l", "--limit", default=200, help="limit", show_default=True)
 def main(overall, update, web, db_name, limit):
 
     if overall:
@@ -115,14 +111,16 @@ def main(overall, update, web, db_name, limit):
     db_file.create_function("url2", 2, "https://pypi.org/project/{}/{}".format)
     db_file.create_function("bl", 1, lambda name: name in blacklist)
 
-    db_file.executescript("""\
+    db_file.executescript(
+        """\
 drop view fat;
 create view if not exists fat as
     select name, sum(size) as size, count(distinct version) as versions, count(*) files
     from file
     group by name
     having count(distinct version) >= 256 or sum(size) >= 1048576;
-""")
+"""
+    )
 
     print("Total size")
     query(db_file, "select hf(sum(size)) from file")
@@ -131,8 +129,12 @@ create view if not exists fat as
     # query(db_file, "select hf(sum(size)) from file where bl(name)=1")
 
     print(f"First {limit} fat projects")
-    query(db_file, "select bl(name) as bl,name,hf(size) as size,versions,files,url(name) as url "
-                   "from fat order by fat.size desc limit ?", (limit,))
+    query(
+        db_file,
+        "select bl(name) as bl,name,hf(size) as size,versions,files,url(name) as url "
+        "from fat order by fat.size desc limit ?",
+        (limit,),
+    )
 
     # for name, size in db_file.execute("select name,size from fat  order by size desc limit ?", (limit,)):
     #     query(db_file, "select name,version,hf(sum(size)),count(*),url2(name,version) from file "
