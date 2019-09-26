@@ -59,10 +59,35 @@ class ColoredFormatter(logging.Formatter):
         return line
 
 
+def win_term():
+    """
+    set the Windows console to understand the ANSI color codes
+    """
+
+    from platform import system as platform_system
+
+    if platform_system() == "Windows":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        # https://docs.microsoft.com/en-us/windows/console/setconsolemode
+        STD_OUTPUT_HANDLE = -11
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        mode = ctypes.wintypes.DWORD()
+        if kernel32.GetConsoleMode(
+            kernel32.GetStdHandle(STD_OUTPUT_HANDLE), ctypes.byref(mode)
+        ):
+            mode = mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(STD_OUTPUT_HANDLE), mode)
+
+
 def init_logger(kwargs):
     """
     initialize the logger with a colored console and a file handlers
     """
+
+    win_term()
 
     filename = kwargs.get("logfile", None)
 
@@ -474,7 +499,7 @@ def update_list(client, db, clear_ignore=False):
     db.commit()
 
 
-def download_metadata(db, use_meta_db, pypi_uri):
+def download_metadata(db, use_meta_db, pypi_uri, whitelist_cond=None):
     """
     download and parse JSON metadata
 
@@ -486,6 +511,23 @@ def download_metadata(db, use_meta_db, pypi_uri):
 
     if use_meta_db:
         db.execute("attach database ? as meta_db", (get_meta_db_path(db),))
+
+    # update metadata only from whitelist
+    if whitelist_cond:
+        whitelist = set()
+        canonicalize_named_names = dict(
+            (canonicalize_name(name), name)
+            for name, in db.execute("select name from list_packages")
+        )
+        for cond in whitelist_cond:
+            m = re.match(r"^([^=<>~]+)(.*)?$", cond)
+            name = canonicalize_name(m.group(1))
+            if name in canonicalize_named_names:
+                name = canonicalize_named_names[name]
+            whitelist.add(name)
+        logger.info("use white list: %r", whitelist)
+    else:
+        whitelist = None
 
     # requests session to download the JSON metadata
     session = requests.Session()
@@ -523,6 +565,10 @@ order by lp.last_serial
                 break
 
             name = row[0]
+
+            if whitelist and name not in whitelist:
+                continue
+
             logger.info(f"bump package {name} from serial {row[2]} to {row[1]}")
 
             try:
@@ -963,23 +1009,23 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     no_index = kwargs["no_index"]
     keep_releases = kwargs["keep_releases"]
 
-    white_list = kwargs["add"]
+    whitelist = kwargs["add"]
     for fn in kwargs["add_list"]:
-        white_list = list(white_list)
+        whitelist = list(whitelist)
         with open(fn) as fp:
             for r in fp:
-                white_list.append(r.strip())
+                whitelist.append(r.strip())
 
     if kwargs["remove_orphans"]:
         remove_orphans(db, web_root, dry_run)
 
     elif kwargs["remove_unwanted"]:
-        only_wl = len(white_list) != 0
+        only_wl = len(whitelist) != 0
         download_packages(
             db,
             web_root,
             dry_run,
-            white_list,
+            whitelist,
             only_wl,
             no_index,
             keep_releases,
@@ -987,28 +1033,34 @@ def run(update=False, metadata=False, packages=False, **kwargs):
             False,
         )
 
-    elif not update and not metadata and not packages and len(white_list) == 0:
-        logger.warning("nothing to do, did you mess up -u, -m, -p or -a/-A ?")
+    elif not update and not metadata and not packages:
+        logger.warning("nothing to do, did you mess up -u, -m, -p ?")
     else:
         if update:
+            logger.info("*** update project list ***")
             update_list(client, db)
 
         if metadata:
-            download_metadata(db, use_meta_db, pypi_uri)
+            if kwargs["whitelist"]:
+                logger.info("*** download metadata (whitelist) ***")
+                download_metadata(db, use_meta_db, pypi_uri, whitelist)
+            else:
+                logger.info("*** download metadata ***")
+                download_metadata(db, use_meta_db, pypi_uri)
 
             # remove the file where we save the download progress
             z = web_root / "done"
             if z.exists():
                 z.unlink()
 
-        if packages or len(white_list) != 0:
-            only_wl = not packages
+        if packages:
+            logger.info("*** download packages ***")
             download_packages(
                 db,
                 web_root,
                 dry_run,
-                white_list,
-                only_wl,
+                whitelist,
+                kwargs["whitelist"],
                 no_index,
                 keep_releases,
                 False,
@@ -1029,22 +1081,23 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     "--dry-run",
     is_flag=True,
     default=False,
-    help="dry run (do not download package)",
+    help="dry run (do not download packages)",
 )
 @click.option(
-    "-u", "--update", is_flag=True, default=False, help="update list of packages"
+    "-u", "--update", is_flag=True, default=False, help="update list of projects"
 )
 @click.option(
     "-m", "--metadata", is_flag=True, default=False, help="download JSON metadata"
 )
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
-@click.option("-a", "--add", multiple=True, help="package name (trigger mirroring)")
+@click.option("-w", "--whitelist", is_flag=True, default=False, help="ONLY process projects within the whitelist")
+@click.option("-a", "--add", multiple=True, help="project name")
 @click.option(
     "-r",
     "-A",
     "--add-list",
     multiple=True,
-    help="package list (trigger mirroring)",
+    help="project list",
     type=click.Path(exists=True),
 )
 @click.option(
