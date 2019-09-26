@@ -106,7 +106,7 @@ class SimpleHandler(tornado.web.RequestHandler):
 @click.option(
     "--db",
     default="pypi.db",
-    help="packages database",
+    help="project database",
     type=click.Path(file_okay=True),
     show_default=True,
 )
