@@ -7,3 +7,5 @@ __pycache__/
 done
 changelog.txt
 changelog.json
+go/server.key
+go/server.crt

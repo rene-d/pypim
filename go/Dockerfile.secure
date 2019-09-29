@@ -1,0 +1,2 @@
+FROM pypim
+COPY server.key server.crt /

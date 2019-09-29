@@ -151,6 +151,7 @@ func main() {
 	port := flag.Int("p", 8000, "port to serve on")
 	directory := flag.String("web", "~/data/pypi", "mirror directory")
 	database := flag.String("db", "pypi.db", "project database")
+	secure := flag.Bool("secure", false, "use https")
 	flag.Parse()
 
 	var err error
@@ -166,25 +167,19 @@ func main() {
 
 	addr := ":" + strconv.Itoa(*port)
 
-	log.Printf("Serving %s on HTTP port: %d", *directory, *port)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	if *secure {
+		/* create a self-signed certificate (https://stackoverflow.com/questions/10175812/)
 
-	/*
-		Generate private key (.key)
+		openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+			-keyout server.key -out server.crt -subj /CN=localhost
+		*/
 
-			# Key considerations for algorithm "RSA" ≥ 2048-bit
-			openssl genrsa -out server.key 2048
+		log.Printf("Serving %s on HTTPS port: %d", *directory, *port)
+		log.Fatal(http.ListenAndServeTLS(addr, "server.crt", "server.key", nil))
 
-			# Key considerations for algorithm "ECDSA" (X25519 || ≥ secp384r1)
-			# https://safecurves.cr.yp.to/
-			# List ECDSA the supported curves (openssl ecparam -list_curves)
-			openssl ecparam -genkey -name secp384r1 -out server.key
+	} else {
 
-		Generation of self-signed(x509) public key (PEM-encodings .pem|.crt) based on the private (.key)
-
-			openssl req -new -x509 -sha256 -key server.key -out server.crt -days 3650
-	*/
-
-	// log.Printf("Serving %s on HTTPS port: %d", *directory, *port)
-	// log.Fatal(http.ListenAndServeTLS(addr, "server.crt", "server.key", nil))
+		log.Printf("Serving %s on HTTP port: %d", *directory, *port)
+		log.Fatal(http.ListenAndServe(addr, nil))
+	}
 }
