@@ -843,7 +843,7 @@ def download_packages(
                 #   releases = data['releases']
                 info = {"name": name, "version": version}
                 releases = defaultdict(list)
-                sql = "select release,filename,url,size,requires_python,sha256_digest,python_version from file where name=?"
+                sql = "select release,filename,url,size,requires_python,sha256_digest,python_version from file where name=?"  # noqa
                 for row in db.execute(sql, (name,)):
                     releases[row[0]].append(
                         {
@@ -939,7 +939,7 @@ def download_packages(
 
         logger.info(
             f"processed={processed} exist={exist} download={download} download_size={hf.format_size(download_size)} ({download_size} bytes)"
-        )
+        )  # noqa
 
         if remove_filtered_releases:
             logger.info(f"files removed: {removed_files}")
@@ -1090,7 +1090,13 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     "-m", "--metadata", is_flag=True, default=False, help="download JSON metadata"
 )
 @click.option("-p", "--packages", is_flag=True, default=False, help="mirror packages")
-@click.option("-w", "--whitelist", is_flag=True, default=False, help="ONLY process projects within the whitelist")
+@click.option(
+    "-w",
+    "--whitelist",
+    is_flag=True,
+    default=False,
+    help="ONLY process projects within the whitelist",
+)
 @click.option("-a", "--add", multiple=True, help="project name")
 @click.option(
     "-r",
