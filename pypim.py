@@ -27,6 +27,7 @@ from plugins import filename_name, latest_name
 from plugins.blacklist import get_blacklist
 import shutil
 import humanfriendly as hf
+import os.path
 
 
 # create logger for our app
@@ -1114,11 +1115,7 @@ def run(update=False, metadata=False, packages=False, **kwargs):
     show_default=True,
 )
 @click.option(
-    "--db",
-    default="pypi.db",
-    help="packages database",
-    type=click.Path(file_okay=True),
-    show_default=True,
+    "--db", help="packages database", type=click.Path(file_okay=True), show_default=True
 )
 @click.option("--remove-orphans", is_flag=True, help="find and remove orphan files")
 @click.option("--remove-unwanted", is_flag=True, help="find and remove unwanted files")
@@ -1151,6 +1148,12 @@ def main(**kwargs):
 
     start_time = time.time()
     init_logger(kwargs)
+
+    kwargs["web"] = os.path.expanduser(kwargs["web"])
+    if kwargs["db"] is None:
+        kwargs["db"] = os.path.join(kwargs["web"], "pypi.db")
+    else:
+        kwargs["db"] = os.path.expanduser(kwargs["db"])
 
     logger.info("PyPIM started")
     logger.debug(f"args {kwargs!r}")

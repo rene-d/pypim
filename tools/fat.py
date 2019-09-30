@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import humanfriendly
 import pickle
 from plugins.blacklist import get_blacklist
+import os.path
 
 
 def query(db, sql, args=(), sep=" "):
@@ -69,13 +70,18 @@ def get_cached_list(filename, getter):
 @click.option(
     "--db",
     "db_name",
-    default="pypi.db",
     help="packages database",
     type=click.Path(file_okay=True),
     show_default=True,
 )
 @click.option("-l", "--limit", default=200, help="limit", show_default=True)
 def main(overall, update, web, db_name, limit):
+
+    web = os.path.expanduser(web)
+    if db_name is None:
+        db_name = os.path.join(web, "pypi.db")
+    else:
+        db_name = os.path.expanduser(db_name)
 
     if overall:
         db_file = sqlite3.connect(db_name)

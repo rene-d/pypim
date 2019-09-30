@@ -87,7 +87,7 @@ def init_logger(kwargs):
     "-nv", "--non-verbose", is_flag=True, default=False, help="no so much verbose"
 )
 @click.option("-lf", "--logfile", help="logfile")
-@click.option("--db", show_default=True, help="db", default="pypi.db")
+@click.option("--db", show_default=True, help="db", default="~/data/pypi/pypi.db")
 @click.option("-s", "--last_serial", help="last_serial", default=0)
 @click.option(
     "-j", "--json", is_flag=True, default=False, help="save changelog in JSON"

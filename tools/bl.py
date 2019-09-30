@@ -10,6 +10,7 @@ import sqlite3
 import pathlib
 from urllib.parse import urlparse
 import humanfriendly as hf
+import os.path
 
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
@@ -22,16 +23,18 @@ import humanfriendly as hf
     show_default=True,
 )
 @click.option(
-    "--db",
-    default="pypi.db",
-    help="packages database",
-    type=click.Path(file_okay=True),
-    show_default=True,
+    "--db", help="packages database", type=click.Path(file_okay=True), show_default=True
 )
 def main(verbose, web, db):
     """
     remove blacklisted projects from the mirror
     """
+
+    web = os.path.expanduser(web)
+    if db is None:
+        db = os.path.join(web, "pypi.db")
+    else:
+        db = os.path.expanduser(db)
 
     bl = pickle.load(open("blacklist.cache", "rb"))[0]
     conn = sqlite3.connect(db)

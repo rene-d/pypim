@@ -104,17 +104,19 @@ class SimpleHandler(tornado.web.RequestHandler):
     show_default=True,
 )
 @click.option(
-    "--db",
-    default="pypi.db",
-    help="project database",
-    type=click.Path(file_okay=True),
-    show_default=True,
+    "--db", help="project database", type=click.Path(file_okay=True), show_default=True
 )
 def main(verbose, port, web, db):
     if verbose:
         tornado.log.gen_log.setLevel(logging.DEBUG)
 
     path = pathlib.Path(web).expanduser()
+
+    if db is None:
+        db = pathlib.Path(path) / "pypi.db"
+    else:
+        db = pathlib.Path(db).expanduser()
+
     database = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 
     app = tornado.web.Application(
