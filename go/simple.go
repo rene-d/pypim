@@ -15,7 +15,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"os/user"
+	"path"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -24,12 +29,43 @@ import (
 
 // the project database
 var db *sql.DB
+var directory *string
 
 // returns normalized project name
 func canonicalizeName(name string) string {
 	name = strings.ToLower(name)
 	re := regexp.MustCompile(`[-_.]+`)
 	return re.ReplaceAllString(name, "-")
+}
+
+// expand user path
+func getPath(path string) string {
+	usr, _ := user.Current()
+	var dir string
+	if usr != nil {
+		dir = usr.HomeDir
+	} else {
+		dir = "/"
+	}
+
+	if path == "~" {
+		// In case of "~", which won't be caught by the "else if"
+		path = dir
+	} else if strings.HasPrefix(path, "~/") {
+		// Use strings.HasPrefix so we don't match paths like
+		// "/something/~/something/"
+		path = filepath.Join(dir, path[2:])
+	}
+	return path
+}
+
+// test if file exists
+func fileExists(f string) bool {
+	_, err := os.Stat(f)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return err == nil
 }
 
 // returns the project list
@@ -72,6 +108,7 @@ func simpleProject(w http.ResponseWriter, project string) {
 	}
 
 	filesCount := 0
+	filesMissing := 0
 
 	// build the html page with file list
 	fmt.Fprintf(w, `<!DOCTYPE html>
@@ -97,13 +134,20 @@ func simpleProject(w http.ResponseWriter, project string) {
 			log.Println(err)
 		} else {
 			u, _ := url.Parse(fileURL)
-			params := ""
-			if requiresPython != nil {
-				params = " data-requires-python=\"" + html.EscapeString(*requiresPython) + "\""
-			}
-			fmt.Fprintf(w, "    <a href=\"../..%s#sha256=%s\"%s>%s</a><br/>\n", u.Path, sha256Digest, params, filename)
 
-			filesCount++
+			fp := path.Join(*directory, u.Path)
+			if fileExists(fp) {
+				params := ""
+				if requiresPython != nil {
+					params = " data-requires-python=\"" + html.EscapeString(*requiresPython) + "\""
+				}
+				fmt.Fprintf(w, "    <a href=\"../..%s#sha256=%s\"%s>%s</a><br/>\n", u.Path, sha256Digest, params, filename)
+
+				filesCount++
+			} else {
+				filesMissing++
+			}
+
 		}
 	}
 
@@ -111,7 +155,7 @@ func simpleProject(w http.ResponseWriter, project string) {
 </html>
 <!--SERIAL {%d}-->`, lastSerial)
 
-	fmt.Printf("project %s : last_serial=%d files=%d\n", project, lastSerial, filesCount)
+	log.Printf("project %s : last_serial=%d files=%d ignored=%d\n", project, lastSerial, filesCount, filesMissing)
 }
 
 func simple(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +174,7 @@ func simple(w http.ResponseWriter, r *http.Request) {
 func defaultHandle(w http.ResponseWriter, r *http.Request) {
 	log.Println(">>>", r.RequestURI)
 
-	fmt.Fprintln(w, "Hello from Go!")
+	fmt.Fprintln(w, "Hello from", runtime.Version(), runtime.GOARCH, runtime.GOOS)
 
 	fmt.Fprintln(w, "URL:", r.URL)
 	fmt.Fprintln(w, "RemoteAddr:", r.RemoteAddr)
@@ -149,13 +193,15 @@ func main() {
 
 	// command line options
 	port := flag.Int("p", 8000, "port to serve on")
-	directory := flag.String("web", "~/data/pypi", "mirror directory")
-	database := flag.String("db", "pypi.db", "project database")
+	directory = flag.String("r", "~/data/pypi", "mirror root directory")
 	secure := flag.Bool("secure", false, "use https")
 	flag.Parse()
 
+	*directory = getPath(*directory)
+
 	var err error
-	db, err = sql.Open("sqlite3", *database)
+	dbPath := path.Join(*directory, "pypi.db")
+	db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
