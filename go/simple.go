@@ -25,11 +25,15 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/rakyll/statik/fs"
+
+	_ "./statik"
 )
 
 // the project database
 var db *sql.DB
 var directory *string
+var addSummary *bool
 
 // returns normalized project name
 func canonicalizeName(name string) string {
@@ -85,9 +89,10 @@ func simpleIndex(w http.ResponseWriter) {
 		var name string
 		err := rows.Scan(&name)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+		} else {
+			fmt.Fprintf(w, "    <a href=\"./%s\">%s</a><br/>\n", canonicalizeName(name), name)
 		}
-		fmt.Fprintf(w, "    <a href=\"./%s\">%s</a><br/>\n", canonicalizeName(name), name)
 	}
 
 	fmt.Fprintf(w, `  </body>
@@ -100,10 +105,12 @@ func simpleProject(w http.ResponseWriter, project string) {
 
 	// verify if we have the project by fetching its last_serial
 	var lastSerial int64
-	err := db.QueryRow("select last_serial from package where name=?", project).Scan(&lastSerial)
+	var summary, version string
+	err := db.QueryRow("select last_serial,summary,version from package where name=?", project).Scan(&lastSerial, &summary, &version)
 	if err != nil {
 		log.Printf("project %s not found", project)
 		w.WriteHeader(403)
+		fmt.Fprintln(w, "not found")
 		return
 	}
 
@@ -120,35 +127,48 @@ func simpleProject(w http.ResponseWriter, project string) {
 	<h1>Links for %s</h1>
 `, project, project)
 
-	rows, _ := db.Query("select release,filename,url,size,requires_python,sha256_digest from file where name=?", project)
-	defer rows.Close()
-	for rows.Next() {
-		var release string
-		var filename string
-		var fileURL string
-		var size int64
-		var requiresPython *string
-		var sha256Digest string
-		err := rows.Scan(&release, &filename, &fileURL, &size, &requiresPython, &sha256Digest)
-		if err != nil {
-			log.Println(err)
-		} else {
-			u, _ := url.Parse(fileURL)
+	rows, err := db.Query("select release,filename,url,size,requires_python,sha256_digest from file where name=?", project)
+	if err != nil {
+		log.Println(err)
+	} else {
+		defer rows.Close()
 
-			fp := path.Join(*directory, u.Path)
-			if fileExists(fp) {
-				params := ""
-				if requiresPython != nil {
-					params = " data-requires-python=\"" + html.EscapeString(*requiresPython) + "\""
-				}
-				fmt.Fprintf(w, "    <a href=\"../..%s#sha256=%s\"%s>%s</a><br/>\n", u.Path, sha256Digest, params, filename)
+		for rows.Next() {
+			var release string
+			var filename string
+			var fileURL string
+			var size int64
+			var requiresPython *string
+			var sha256Digest string
 
-				filesCount++
+			err := rows.Scan(&release, &filename, &fileURL, &size, &requiresPython, &sha256Digest)
+			if err != nil {
+				log.Println(err)
 			} else {
-				filesMissing++
-			}
+				u, err := url.Parse(fileURL)
 
+				if err == nil {
+
+					fp := path.Join(*directory, u.Path)
+					if fileExists(fp) {
+						params := ""
+						if requiresPython != nil {
+							params = " data-requires-python=\"" + html.EscapeString(*requiresPython) + "\""
+						}
+						fmt.Fprintf(w, "    <a href=\"../..%s#sha256=%s\"%s>%s</a><br/>\n", u.Path, sha256Digest, params, filename)
+
+						filesCount++
+					} else {
+						filesMissing++
+					}
+				}
+
+			}
 		}
+	}
+
+	if *addSummary {
+		fmt.Fprintf(w, "\n<hr/>\n%s\n<hr/>\nCurrent version: %s\n", summary, version)
 	}
 
 	fmt.Fprintf(w, `  </body>
@@ -159,7 +179,6 @@ func simpleProject(w http.ResponseWriter, project string) {
 }
 
 func simple(w http.ResponseWriter, r *http.Request) {
-
 	// request URL is /simple/xxxx/...
 	// project name is the third element
 	path := strings.Split(r.URL.Path, "/")
@@ -195,6 +214,7 @@ func main() {
 	port := flag.Int("p", 8000, "port to serve on")
 	directory = flag.String("r", "~/data/pypi", "mirror root directory")
 	secure := flag.Bool("secure", false, "use https")
+	addSummary = flag.Bool("summary", false, "add project summary to index.html (non standard)")
 	flag.Parse()
 
 	*directory = getPath(*directory)
@@ -207,8 +227,19 @@ func main() {
 	}
 	defer db.Close()
 
+	// the pip API
 	http.Handle("/packages/", http.FileServer(http.Dir(*directory)))
 	http.HandleFunc("/simple/", simple)
+
+	// static resource
+	statikFS, err := fs.New()
+	if err != nil {
+		log.Fatal(err)
+	}
+	http.Handle("/favicon.ico", http.FileServer(statikFS))
+	// http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(statikFS)))
+
+	// all other requests land here
 	http.HandleFunc("/", defaultHandle)
 
 	addr := ":" + strconv.Itoa(*port)

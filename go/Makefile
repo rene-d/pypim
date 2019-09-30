@@ -1,13 +1,20 @@
+# Makefile for simple.go
 
 default:
 	@echo "Use « make <TAB> » to get the target list"
 
-simple: simple.go
+all: simple simple.linux simple.arm
+
+simple: simple.go statik
 	go build simple.go
 
+.PHONY: statik
+statik:
+	statik -c "static resources"
+
 # build the standard server image
-.PHONY: linux
-linux:
+.PHONY: x86 docker linux
+x86 docker linux:
 	docker build -q -t pypim .
 
 # cross-compile an image for ARM
@@ -22,7 +29,7 @@ secure: x86 server.crt server.key
 
 # run http server in a Docker container
 .PHONY:	run
-run: linux
+run: x86
 	docker run --rm -ti -p 8000:8000 -v ~/data/pypi:/data pypim
 
 # run https server in a Docker container
@@ -35,23 +42,22 @@ run-secure: secure
 server.crt server.key:
 	openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes -keyout server.key -out server.crt -subj /CN=localhost
 
-# création binaire pour linux x86
+# extract linux x86 executable from Docker image
 create_id = $(shell docker create pypim)
 set_id = $(eval container_id=$(create_id))
-simple.linux: linux
+simple.linux: x86
 	@$(set_id)
-	@echo Container filesystem:
+	@echo "Container filesystem:"
 	@docker export $(container_id) | tar -tv
 	docker export $(container_id) | tar -xO simple > simple.linux
-	mv simple simple.linux
 	docker container rm $(container_id)
 
-# création binaire pour linux arm
+# extract linux arm executable from Docker image
 create_id_arm = $(shell docker create pypim:arm)
 set_id_arm = $(eval container_id_arm=$(create_id_arm))
 simple.arm: arm
 	@$(set_id_arm)
-	@echo Container filesystem:
+	@echo "Container filesystem:"
 	@docker export $(container_id_arm) | tar -tv
 	docker export $(container_id_arm) | tar -xO simple > simple.arm
 	docker container rm $(container_id_arm)
@@ -59,4 +65,4 @@ simple.arm: arm
 clean:
 	docker container prune -f
 	docker image prune -f
-	rm -f simple.arm simple.linux server.crt server.key simple
+	rm -rf simple.arm simple.linux server.crt server.key simple statik
