@@ -51,6 +51,7 @@ simple.linux: x86
 	@docker export $(container_id) | tar -tv
 	docker export $(container_id) | tar -xO simple > simple.linux
 	docker container rm $(container_id)
+	chmod a+x simple.linux
 
 # extract linux arm executable from Docker image
 create_id_arm = $(shell docker create pypim:arm)
@@ -61,6 +62,7 @@ simple.arm: arm
 	@docker export $(container_id_arm) | tar -tv
 	docker export $(container_id_arm) | tar -xO simple > simple.arm
 	docker container rm $(container_id_arm)
+	chmod a+x simple.arm
 
 clean:
 	docker container prune -f
