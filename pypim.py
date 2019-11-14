@@ -300,6 +300,7 @@ create table if not exists file (
     requires_python text,
     size            integer not null,
     upload_time     datetime,
+    upload_time_iso_8601 datatime,
     url             text
 );
 
